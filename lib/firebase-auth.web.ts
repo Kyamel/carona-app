@@ -1,5 +1,7 @@
-import { getAuth } from "firebase/auth";
+// Lucas Camelo
+// Richardy Tanure
 
+import { getAuth } from "firebase/auth";
 import { app } from "./firebase-app";
 
 export const auth = getAuth(app);

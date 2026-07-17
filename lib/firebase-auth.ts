@@ -1,3 +1,6 @@
+// Lucas Camelo
+// Richardy Tanure
+
 import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 import * as firebaseAuth from "firebase/auth";
 
