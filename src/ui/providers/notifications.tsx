@@ -106,7 +106,8 @@ export function useNotifications() {
 // Fica dentro do provider para ter acesso ao notify().
 function RideNotificationBridge() {
   const { notify } = useNotifications();
-  const { role, ride, myJoinRequest, passengers } = useRideSession();
+  const { role, ride, myJoinRequest, passengers, flagAcceptance } =
+    useRideSession();
 
   const prevPassengerCount = useRef(passengers.length);
   const prevRequestStatus = useRef(myJoinRequest?.status ?? null);
@@ -119,9 +120,10 @@ function RideNotificationBridge() {
         title: "Novo passageiro",
         message: "Um passageiro entrou na sua carona.",
       });
+      flagAcceptance();
     }
     prevPassengerCount.current = passengers.length;
-  }, [role, passengers.length, notify]);
+  }, [role, passengers.length, notify, flagAcceptance]);
 
   // Passageiro: pedido aceito ou recusado.
   useEffect(() => {
@@ -132,6 +134,7 @@ function RideNotificationBridge() {
           title: "Carona confirmada!",
           message: "O motorista aceitou seu pedido.",
         });
+        flagAcceptance();
       } else if (status === "declined") {
         notify({
           title: "Pedido recusado",
@@ -140,7 +143,7 @@ function RideNotificationBridge() {
       }
       prevRequestStatus.current = status;
     }
-  }, [myJoinRequest?.status, notify]);
+  }, [myJoinRequest?.status, notify, flagAcceptance]);
 
   // Todos: início e cancelamento da carona.
   useEffect(() => {

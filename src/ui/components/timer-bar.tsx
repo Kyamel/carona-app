@@ -6,6 +6,7 @@ import { useRideSession, type RidePhase } from "@ui/providers/ride-session";
 
 const LABELS: Record<RidePhase, string> = {
   idle: "",
+  seeking: "Pedido de carona publicado",
   requesting: "Procurando carona",
   waiting: "Carona confirmada — aguardando início",
   offering: "Oferecendo carona",
@@ -49,7 +50,8 @@ export function TimerBar() {
   }
 
   // Contador de espera só faz sentido enquanto ainda não iniciou/aceitou.
-  const showTimer = phase === "requesting" || phase === "offering";
+  const showTimer =
+    phase === "requesting" || phase === "offering" || phase === "seeking";
 
   return (
     <Pressable

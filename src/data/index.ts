@@ -6,6 +6,7 @@ export * from "./types/user";
 export * from "./services/active-ride-service";
 export * from "./services/auth-service";
 export * from "./services/bookmark-service";
+export * from "./services/chat-service";
 export * from "./services/dispute-service";
 export * from "./services/reputation-service";
 export * from "./services/review-service";

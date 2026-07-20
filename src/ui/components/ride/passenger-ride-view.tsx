@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useRouter } from "expo-router";
 import {
   Alert,
   Pressable,
@@ -11,6 +12,8 @@ import {
 import {
   cancelPendingJoinRequest,
   cancelRideAsPassenger,
+  confirmRidePassenger,
+  declineRideProposal,
   type Ride,
 } from "@data";
 
@@ -29,6 +32,7 @@ export function PassengerRideView({
 }) {
   const scheme = useColorScheme() ?? "light";
   const colors = Colors[scheme];
+  const router = useRouter();
   const { phase, passengers } = useRideSession();
   const [busy, setBusy] = useState(false);
 
@@ -36,12 +40,70 @@ export function PassengerRideView({
     (p) => p.status === "accepted" && p.uid !== passengerId,
   );
 
+  const myPassenger = passengers.find((p) => p.uid === passengerId);
+  // Motorista aceitou meu pedido público, mas eu ainda não confirmei que quero
+  // ir com ele. Enquanto isso, ele não consegue iniciar a corrida.
+  const needsConfirmation =
+    phase === "waiting" && myPassenger != null && !myPassenger.confirmed;
+  // Chat só depois do aceite (existe passenger doc) — antes disso não há par.
+  const canChat = myPassenger != null && phase !== "requesting";
+
   const statusLabel =
     phase === "requesting"
       ? "Procurando carona"
-      : phase === "waiting"
-        ? "Carona confirmada"
-        : "Carona em andamento";
+      : needsConfirmation
+        ? "Confirme sua carona"
+        : phase === "waiting"
+          ? "Carona confirmada"
+          : "Carona em andamento";
+
+  async function handleConfirm() {
+    setBusy(true);
+    try {
+      await confirmRidePassenger(ride.id, passengerId);
+    } catch (cause) {
+      Alert.alert(
+        "Ops",
+        cause instanceof Error ? cause.message : "Tente novamente.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleDecline() {
+    Alert.alert(
+      "Recusar carona",
+      `Recusar a carona de ${ride.driverName}? Você sai desta carona e fica livre para pedir de novo.`,
+      [
+        { text: "Voltar", style: "cancel" },
+        {
+          text: "Recusar",
+          style: "destructive",
+          onPress: async () => {
+            setBusy(true);
+            try {
+              await declineRideProposal(ride.id, passengerId);
+            } catch (cause) {
+              Alert.alert(
+                "Ops",
+                cause instanceof Error ? cause.message : "Tente novamente.",
+              );
+            } finally {
+              setBusy(false);
+            }
+          },
+        },
+      ],
+    );
+  }
+
+  function openChat() {
+    router.push({
+      pathname: "/chat",
+      params: { rideId: ride.id, threadId: passengerId, title: ride.driverName },
+    });
+  }
 
   async function handleCancel() {
     setBusy(true);
@@ -93,7 +155,22 @@ export function PassengerRideView({
             {ride.origin.label} → {ride.destination.label}
           </Text>
         </View>
+        {canChat ? (
+          <Pressable
+            onPress={openChat}
+            style={[styles.chatButton, { backgroundColor: colors.tint }]}
+          >
+            <IconSymbol name="bubble.left.fill" size={20} color="#fff" />
+          </Pressable>
+        ) : null}
       </View>
+
+      {needsConfirmation ? (
+        <Text style={{ color: colors.icon }}>
+          {ride.driverName} aceitou seu pedido. Confirme para embarcar — só então
+          o motorista poderá iniciar a corrida.
+        </Text>
+      ) : null}
 
       <Text style={[styles.sectionTitle, { color: colors.text }]}>
         Outros passageiros ({coRiders.length})
@@ -115,15 +192,40 @@ export function PassengerRideView({
         ))
       )}
 
-      <Pressable
-        style={[styles.cancel, { opacity: busy ? 0.5 : 1 }]}
-        disabled={busy}
-        onPress={handleCancel}
-      >
-        <Text style={styles.cancelText}>
-          {phase === "requesting" ? "Cancelar pedido" : "Desistir da carona"}
-        </Text>
-      </Pressable>
+      {needsConfirmation ? (
+        <>
+          <Pressable
+            style={[
+              styles.confirm,
+              { backgroundColor: colors.tint, opacity: busy ? 0.5 : 1 },
+            ]}
+            disabled={busy}
+            onPress={handleConfirm}
+          >
+            <IconSymbol name="checkmark.circle.fill" size={20} color="#fff" />
+            <Text style={styles.confirmText}>
+              Confirmar carona com {ride.driverName}
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.cancel, { opacity: busy ? 0.5 : 1 }]}
+            disabled={busy}
+            onPress={handleDecline}
+          >
+            <Text style={styles.cancelText}>Recusar</Text>
+          </Pressable>
+        </>
+      ) : (
+        <Pressable
+          style={[styles.cancel, { opacity: busy ? 0.5 : 1 }]}
+          disabled={busy}
+          onPress={handleCancel}
+        >
+          <Text style={styles.cancelText}>
+            {phase === "requesting" ? "Cancelar pedido" : "Desistir da carona"}
+          </Text>
+        </Pressable>
+      )}
     </ScrollView>
   );
 }
@@ -141,8 +243,25 @@ const styles = StyleSheet.create({
     borderColor: "#8E8E93",
   },
   driver: { fontSize: 18, fontWeight: "700" },
+  chatButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   sectionTitle: { fontSize: 16, fontWeight: "700", marginTop: 8 },
   riderRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  confirm: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 12,
+    paddingVertical: 15,
+    marginTop: 20,
+  },
+  confirmText: { color: "#fff", fontWeight: "700", fontSize: 16 },
   cancel: {
     borderWidth: 1,
     borderColor: "#C8102E",

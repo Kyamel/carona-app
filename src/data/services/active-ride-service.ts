@@ -9,20 +9,25 @@ export function observeActiveRide(
   uid: string,
   listener: (activeRide: ActiveRide | null) => void,
 ): () => void {
-  return onSnapshot(doc(db, ACTIVE_RIDES_COLLECTION, uid), (snapshot) => {
-    if (!snapshot.exists()) {
-      listener(null);
-      return;
-    }
+  return onSnapshot(
+    doc(db, ACTIVE_RIDES_COLLECTION, uid),
+    (snapshot) => {
+      if (!snapshot.exists()) {
+        listener(null);
+        return;
+      }
 
-    const data = snapshot.data();
-    listener({
-      uid: snapshot.id,
-      rideId: data.rideId,
-      role: data.role,
-      createdAt: timestampToDate(data.createdAt),
-    });
-  });
+      const data = snapshot.data();
+      listener({
+        uid: snapshot.id,
+        rideId: data.rideId,
+        role: data.role,
+        createdAt: timestampToDate(data.createdAt),
+      });
+    },
+    (error) =>
+      console.warn("[active-ride-service] observeActiveRide:", error.message),
+  );
 }
 
 export async function clearActiveRide(uid: string): Promise<void> {

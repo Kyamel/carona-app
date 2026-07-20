@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { ALLOW_NON_UFOP, isUfopEmail, register } from "@data";
 
 import { authInputStyle, authStyles } from "@ui/components/auth/auth-styles";
+import { PasswordInput } from "@ui/components/auth/password-input";
 import { Colors } from "@ui/constants/theme";
 import { useColorScheme } from "@ui/hooks/use-color-scheme";
 
@@ -58,14 +59,10 @@ export function RegisterForm() {
         autoComplete="email"
         keyboardType="email-address"
       />
-      <TextInput
-        style={[authStyles.input, authInputStyle(scheme)]}
-        placeholder="Senha"
-        placeholderTextColor={colors.icon}
+      <PasswordInput
         value={password}
         onChangeText={setPassword}
         autoComplete="new-password"
-        secureTextEntry
       />
       {error ? <Text style={authStyles.error}>{error}</Text> : null}
       <Pressable

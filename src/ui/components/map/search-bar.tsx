@@ -24,15 +24,22 @@ type SearchBarProps = {
   onSelectDestination: (destination: NamedLocation | null) => void;
   // Preenchido na fase de bookmarks; aparecem como sugestões fixas.
   bookmarks?: NamedLocation[];
+  // Cor de destaque conforme o modo do mapa (pedir/oferecer). Cai no tint do
+  // tema quando não informado.
+  tintColor?: string;
+  placeholder?: string;
 };
 
 export function SearchBar({
   destination,
   onSelectDestination,
   bookmarks = [],
+  tintColor,
+  placeholder = "Para onde você vai?",
 }: SearchBarProps) {
   const scheme = useColorScheme() ?? "light";
   const colors = Colors[scheme];
+  const accent = tintColor ?? colors.tint;
 
   const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState("");
@@ -104,7 +111,7 @@ export function SearchBar({
           <View style={styles.inputRow}>
             <TextInput
               style={[styles.input, { color: colors.text }]}
-              placeholder="Para onde você vai?"
+              placeholder={placeholder}
               placeholderTextColor={colors.icon}
               value={query}
               onChangeText={setQuery}
@@ -180,10 +187,13 @@ export function SearchBar({
         </View>
       ) : (
         <Pressable
-          style={[styles.pill, { backgroundColor: colors.background }]}
+          style={[
+            styles.pill,
+            { backgroundColor: colors.background, borderColor: accent },
+          ]}
           onPress={() => setExpanded(true)}
         >
-          <IconSymbol name="magnifyingglass" size={20} color={colors.tint} />
+          <IconSymbol name="magnifyingglass" size={20} color={accent} />
           <Text
             style={[
               styles.pillText,
@@ -191,7 +201,7 @@ export function SearchBar({
             ]}
             numberOfLines={1}
           >
-            {destination ? destination.label : "Para onde você vai?"}
+            {destination ? destination.label : placeholder}
           </Text>
           {destination ? (
             <Pressable onPress={() => onSelectDestination(null)} hitSlop={8}>
@@ -217,6 +227,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     borderRadius: 28,
+    borderWidth: 1.5,
     paddingHorizontal: 16,
     paddingVertical: 14,
     elevation: 4,

@@ -79,12 +79,12 @@ function RootNavigator() {
           <Stack.Protected guard={signedIn}>
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen
-              name="offer-ride"
-              options={{ presentation: "modal", title: "Oferecer carona" }}
-            />
-            <Stack.Screen
               name="review"
               options={{ presentation: "modal", title: "Avaliar carona" }}
+            />
+            <Stack.Screen
+              name="chat"
+              options={{ presentation: "modal", title: "Conversa" }}
             />
           </Stack.Protected>
         </Stack>

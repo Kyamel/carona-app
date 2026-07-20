@@ -34,6 +34,11 @@ const MAPPING = {
   checkmark: "check",
   "arrow.right": "arrow-forward",
   "person.2.fill": "people",
+  "figure.wave": "hail",
+  "bubble.left.fill": "chat-bubble",
+  "checkmark.circle.fill": "check-circle",
+  eye: "visibility",
+  "eye.slash": "visibility-off",
 } as IconMapping;
 
 /**

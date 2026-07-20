@@ -1,12 +1,15 @@
 import { Tabs } from "expo-router";
+import { View } from "react-native";
 
 import { Colors } from "@ui/constants/theme";
 import { HapticTab } from "@ui/components/haptic-tab";
 import { IconSymbol } from "@ui/components/icons/icon-symbol";
 import { useColorScheme } from "@ui/hooks/use-color-scheme";
+import { useRideSession } from "@ui/providers/ride-session";
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const { acceptanceBadge } = useRideSession();
 
   return (
     <Tabs
@@ -30,7 +33,24 @@ export default function TabLayout() {
         options={{
           title: "Carona",
           tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="car.fill" color={color} />
+            <View>
+              <IconSymbol size={28} name="car.fill" color={color} />
+              {acceptanceBadge ? (
+                <View
+                  style={{
+                    position: "absolute",
+                    top: -2,
+                    right: -6,
+                    width: 12,
+                    height: 12,
+                    borderRadius: 6,
+                    backgroundColor: "#C8102E",
+                    borderWidth: 2,
+                    borderColor: Colors[colorScheme ?? "light"].background,
+                  }}
+                />
+              ) : null}
+            </View>
           ),
         }}
       />

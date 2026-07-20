@@ -48,6 +48,13 @@ service cloud.firestore {
     //   aceite, no mesmo batch do joinRequest -> accepted)
     //     - uid == doc id; name 1..80; pickup/dropoff; status:
     //       accepted | canceled; joinedAt; canceledAt: null | timestamp
+    //     - confirmed: bool opcional. false só quando o motorista aceita um
+    //       PEDIDO PÚBLICO (mão dupla); o pedinte confirma depois (só o próprio
+    //       passageiro liga o campo). Ausente/true = confirmado.
+    //   Subcollection: threads/{passengerUid}/messages/{messageId} (DM 1:1)
+    //     - senderId == auth.uid; senderName 1..80; text 1..1000;
+    //       createdAt == request.time. Só o motorista e o passageiro daquela
+    //       thread, e apenas após o aceite (passengers/{passengerUid} existe).
     //
     // Collection: rideOffers (listagem pública sem localização do motorista)
     // Document ID: rideId
@@ -152,7 +159,7 @@ service cloud.firestore {
 
     // Caixa de ~±440 m em torno do ICEA – UFOP João Monlevade
     // (-19.8358432, -43.1678773). Espelha ICEA_BOUNDS em
-    // apps/backend/src/constants/campus.ts — manter em sincronia.
+    // src/data/constants/campus.ts — manter em sincronia.
     function nearIcea(data) {
       return data.latitude > -19.8398432 &&
         data.latitude < -19.8318432 &&
@@ -295,6 +302,7 @@ service cloud.firestore {
           'rideId',
           'driverName',
           'direction',
+          'endpointPin',
           'availableSeats',
           'seatsAvailable',
           'status',
@@ -306,6 +314,7 @@ service cloud.firestore {
           'rideId',
           'driverName',
           'direction',
+          'endpointPin',
           'availableSeats',
           'seatsAvailable',
           'status',
@@ -316,6 +325,7 @@ service cloud.firestore {
         data.rideId == offerId &&
         validString(data.driverName, 1, 80) &&
         data.direction in ['toCampus', 'fromCampus'] &&
+        validPin(data.endpointPin) &&
         data.availableSeats is int &&
         data.availableSeats >= 1 &&
         data.availableSeats <= 8 &&
@@ -363,6 +373,60 @@ service cloud.firestore {
         validNullableTimestamp(data.respondedAt);
     }
 
+    // Pino PÚBLICO (rideOffers/rideRequests): só lat/lng/geoHash, sem label nem
+    // address (não vaza rua/ponto nomeado). O geoHash é limitado a 6 chars
+    // (~1.2 km), o que limita a precisão pesquisável. O app arredonda a
+    // coordenada (fuzzLocation); enforcement de arredondamento exato não é
+    // viável em rules — ver firestore-security-analysis.md.
+    function validPin(data) {
+      return data is map &&
+        data.keys().hasAll(['latitude', 'longitude', 'geoHash']) &&
+        data.keys().hasOnly(['latitude', 'longitude', 'geoHash']) &&
+        data.latitude is number &&
+        data.latitude >= -90 &&
+        data.latitude <= 90 &&
+        data.longitude is number &&
+        data.longitude >= -180 &&
+        data.longitude <= 180 &&
+        validString(data.geoHash, 1, 6);
+    }
+
+    function validRideRequest(data, requestId) {
+      return data.keys().hasAll([
+          'id',
+          'passengerId',
+          'passengerName',
+          'originPin',
+          'destinationPin',
+          'status',
+          'matchedRideId',
+          'createdAt',
+          'expiresAt',
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'passengerId',
+          'passengerName',
+          'originPin',
+          'destinationPin',
+          'status',
+          'matchedRideId',
+          'createdAt',
+          'expiresAt',
+        ]) &&
+        data.id == requestId &&
+        data.passengerId == requestId &&
+        validString(data.passengerName, 1, 80) &&
+        validPin(data.originPin) &&
+        validPin(data.destinationPin) &&
+        data.status in ['open', 'matched', 'canceled'] &&
+        (data.matchedRideId == null || validUid(data.matchedRideId)) &&
+        data.createdAt is timestamp &&
+        data.expiresAt is timestamp &&
+        data.expiresAt > data.createdAt &&
+        data.expiresAt <= data.createdAt + duration.value(24, 'h');
+    }
+
     function validPassenger(data, passengerId) {
       return data.keys().hasAll([
           'uid',
@@ -379,6 +443,7 @@ service cloud.firestore {
           'pickup',
           'dropoff',
           'status',
+          'confirmed',
           'joinedAt',
           'canceledAt',
         ]) &&
@@ -387,6 +452,8 @@ service cloud.firestore {
         validLocation(data.pickup) &&
         validLocation(data.dropoff) &&
         data.status in ['accepted', 'canceled'] &&
+        // 'confirmed' é opcional (docs antigos não têm; contam como confirmados).
+        (!('confirmed' in data) || data.confirmed is bool) &&
         data.joinedAt is timestamp &&
         validNullableTimestamp(data.canceledAt);
     }
@@ -473,6 +540,57 @@ service cloud.firestore {
         request.resource.data.status == rideAfter(offerId).status;
 
       allow delete: if false;
+    }
+
+    match /rideRequests/{requestId} {
+      // Pino público de "quero carona". Só fuzzy (validPin); ponto exato nunca
+      // entra aqui. Diferente da oferta, não precisa tocar o ICEA.
+      allow read: if isUfopVerified();
+
+      allow create: if isOwner(requestId) &&
+        validRideRequest(request.resource.data, requestId) &&
+        request.resource.data.status == 'open' &&
+        request.resource.data.matchedRideId == null &&
+        request.resource.data.createdAt == request.time &&
+        holdsMutexAfterWrite(requestId, 'requester');
+
+      allow update: if isUfopVerified() &&
+        validRideRequest(request.resource.data, requestId) &&
+        immutable([
+          'id',
+          'passengerId',
+          'passengerName',
+          'originPin',
+          'destinationPin',
+          'createdAt',
+          'expiresAt',
+        ]) &&
+        (
+          // Dono cancela o próprio pedido aberto.
+          (
+            request.auth.uid == requestId &&
+            resource.data.status == 'open' &&
+            request.resource.data.status == 'canceled' &&
+            request.resource.data.matchedRideId == null &&
+            changedOnly(['status'])
+          ) ||
+          // Motorista casa o pedido com a própria carona aberta. O passenger do
+          // requester precisa nascer aceito no mesmo batch (getAfter), o que
+          // amarra este 'matched' a um aceite real.
+          (
+            resource.data.status == 'open' &&
+            request.resource.data.status == 'matched' &&
+            changedOnly(['status', 'matchedRideId']) &&
+            validUid(request.resource.data.matchedRideId) &&
+            rideData(request.resource.data.matchedRideId).driverId == request.auth.uid &&
+            rideData(request.resource.data.matchedRideId).status == 'open' &&
+            getAfter(/databases/$(database)/documents/rides/$(request.resource.data.matchedRideId)/passengers/$(requestId)).data.status == 'accepted'
+          )
+        );
+
+      // Dono remove o pino (cancelamento ou limpeza do tombstone 'matched'
+      // depois de promover o próprio mutex a passageiro).
+      allow delete: if isOwner(requestId);
     }
 
     match /rides/{rideId} {
@@ -584,20 +702,43 @@ service cloud.firestore {
           );
 
         allow create: if isUfopVerified() &&
-          request.auth.uid == requestId &&
           validJoinRequest(request.resource.data, rideId, requestId) &&
-          request.resource.data.status == 'pending' &&
-          request.resource.data.createdAt == request.time &&
-          request.resource.data.respondedAt == null &&
-          rideData(rideId).status == 'open' &&
-          rideData(rideId).driverId != request.auth.uid &&
           (
-            (rideData(rideId).direction == 'toCampus' &&
-              nearIcea(request.resource.data.dropoff)) ||
-            (rideData(rideId).direction == 'fromCampus' &&
-              nearIcea(request.resource.data.pickup))
-          ) &&
-          holdsMutexAfterWrite(rideId, 'passenger');
+            // (1) Passageiro cria o próprio pedido pendente (fluxo existente:
+            //     toca numa oferta pública e pede pra entrar).
+            (
+              request.auth.uid == requestId &&
+              request.resource.data.status == 'pending' &&
+              request.resource.data.createdAt == request.time &&
+              request.resource.data.respondedAt == null &&
+              rideData(rideId).status == 'open' &&
+              rideData(rideId).driverId != request.auth.uid &&
+              (
+                (rideData(rideId).direction == 'toCampus' &&
+                  nearIcea(request.resource.data.dropoff)) ||
+                (rideData(rideId).direction == 'fromCampus' &&
+                  nearIcea(request.resource.data.pickup))
+              ) &&
+              holdsMutexAfterWrite(rideId, 'passenger')
+            ) ||
+            // (2) Motorista aceita um pedido PÚBLICO direto do pino (mão dupla):
+            //     cria o joinRequest já aceito. Sem nearIcea — o pedido pode
+            //     estar no meio do corredor. Amarrado a: existir um rideRequest
+            //     aberto do requester, o passenger nascer aceito e o rideRequest
+            //     virar matched no mesmo batch.
+            (
+              rideData(rideId).driverId == request.auth.uid &&
+              request.auth.uid != requestId &&
+              request.resource.data.status == 'accepted' &&
+              request.resource.data.createdAt == request.time &&
+              request.resource.data.respondedAt == request.time &&
+              rideData(rideId).status == 'open' &&
+              exists(/databases/$(database)/documents/rideRequests/$(requestId)) &&
+              get(/databases/$(database)/documents/rideRequests/$(requestId)).data.status == 'open' &&
+              getAfter(/databases/$(database)/documents/rides/$(rideId)/passengers/$(requestId)).data.status == 'accepted' &&
+              getAfter(/databases/$(database)/documents/rideRequests/$(requestId)).data.status == 'matched'
+            )
+          );
 
         allow update: if isUfopVerified() &&
           validJoinRequest(request.resource.data, rideId, requestId) &&
@@ -669,16 +810,58 @@ service cloud.firestore {
           request.resource.data.canceledAt == null &&
           getAfter(/databases/$(database)/documents/rides/$(rideId)/joinRequests/$(passengerId)).data.status == 'accepted';
 
-        // Desistência do próprio passageiro (registrada em cancellations).
         allow update: if isUfopVerified() &&
           request.auth.uid == passengerId &&
           validPassenger(request.resource.data, passengerId) &&
-          resource.data.status == 'accepted' &&
-          request.resource.data.status == 'canceled' &&
-          request.resource.data.canceledAt == request.time &&
-          changedOnly(['status', 'canceledAt']);
+          (
+            // Desistência do próprio passageiro (registrada em cancellations).
+            (
+              resource.data.status == 'accepted' &&
+              request.resource.data.status == 'canceled' &&
+              request.resource.data.canceledAt == request.time &&
+              changedOnly(['status', 'canceledAt'])
+            ) ||
+            // O pedinte confirma que quer ir com este motorista (fluxo mão
+            // dupla). Só depois disso o motorista libera o início da corrida
+            // (gate client-side). Só liga: nunca desliga o confirmed.
+            (
+              resource.data.status == 'accepted' &&
+              request.resource.data.confirmed == true &&
+              changedOnly(['confirmed'])
+            )
+          );
 
         allow delete: if false;
+      }
+
+      // DM entre o motorista e um passageiro ACEITO. A thread é identificada
+      // pelo uid do passageiro; só o motorista da carona e aquele passageiro
+      // leem/escrevem, e apenas depois do aceite (passengers/{peerId} existe).
+      match /threads/{peerId}/messages/{messageId} {
+        function canUseThread() {
+          return isUfopVerified() &&
+            (
+              request.auth.uid == peerId ||
+              rideData(rideId).driverId == request.auth.uid
+            ) &&
+            exists(/databases/$(database)/documents/rides/$(rideId)/passengers/$(peerId));
+        }
+
+        allow read: if canUseThread();
+
+        allow create: if canUseThread() &&
+          request.resource.data.keys().hasOnly([
+            'senderId', 'senderName', 'text', 'createdAt',
+          ]) &&
+          request.resource.data.keys().hasAll([
+            'senderId', 'senderName', 'text', 'createdAt',
+          ]) &&
+          request.resource.data.senderId == request.auth.uid &&
+          validString(request.resource.data.senderName, 1, 80) &&
+          validString(request.resource.data.text, 1, 1000) &&
+          request.resource.data.createdAt == request.time;
+
+        allow update, delete: if false;
       }
     }
 
@@ -690,7 +873,7 @@ service cloud.firestore {
         request.resource.data.keys().hasOnly(['uid', 'rideId', 'role', 'createdAt']) &&
         request.resource.data.uid == userId &&
         validUid(request.resource.data.rideId) &&
-        request.resource.data.role in ['driver', 'passenger'] &&
+        request.resource.data.role in ['driver', 'passenger', 'requester'] &&
         request.resource.data.createdAt == request.time;
 
       allow update: if false;

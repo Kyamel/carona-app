@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "expo-router";
 import {
   Alert,
   Pressable,
@@ -44,6 +45,7 @@ export function DriverRideView({
 }) {
   const scheme = useColorScheme() ?? "light";
   const colors = Colors[scheme];
+  const router = useRouter();
   const { passengers } = useRideSession();
 
   const [requests, setRequests] = useState<JoinRequest[]>([]);
@@ -59,6 +61,9 @@ export function DriverRideView({
 
   const pending = requests.filter((request) => request.status === "pending");
   const accepted = passengers.filter((p) => p.status === "accepted");
+  // Só libera iniciar quando todos os passageiros confirmaram (pedintes de
+  // pedido público entram como não confirmados até aceitarem o motorista).
+  const allConfirmed = accepted.every((p) => p.confirmed);
 
   // Devolve o assento quando um passageiro aceito desiste (uma vez por uid).
   useEffect(() => {
@@ -128,9 +133,20 @@ export function DriverRideView({
       <Text style={[styles.status, { color: colors.tint }]}>
         {STATUS_LABEL[ride.status] ?? ride.status}
       </Text>
-      <Text style={[styles.route, { color: colors.text }]}>
-        {ride.origin.label} → {ride.destination.label}
-      </Text>
+      <View style={[styles.routeCard, { borderColor: colors.icon }]}>
+        <View style={styles.routeRow}>
+          <IconSymbol name="location.fill" size={16} color="#1565C0" />
+          <Text style={[styles.routeText, { color: colors.text }]}>
+            {ride.origin.label}
+          </Text>
+        </View>
+        <View style={styles.routeRow}>
+          <IconSymbol name="mappin" size={16} color="#C8102E" />
+          <Text style={[styles.routeText, { color: colors.text }]}>
+            {ride.destination.label}
+          </Text>
+        </View>
+      </View>
       <Text style={[styles.seats, { color: colors.icon }]}>
         {ride.seatsAvailable} de {ride.availableSeats} assentos livres
       </Text>
@@ -196,7 +212,27 @@ export function DriverRideView({
                 >
                   {passenger.pickup.label} → {passenger.dropoff.label}
                 </Text>
+                {!passenger.confirmed ? (
+                  <Text style={styles.pendingConfirm}>
+                    Aguardando confirmação
+                  </Text>
+                ) : null}
               </View>
+              <Pressable
+                onPress={() =>
+                  router.push({
+                    pathname: "/chat",
+                    params: {
+                      rideId: ride.id,
+                      threadId: passenger.uid,
+                      title: passenger.name,
+                    },
+                  })
+                }
+                style={[styles.iconButton, { backgroundColor: colors.tint }]}
+              >
+                <IconSymbol name="bubble.left.fill" size={18} color="#fff" />
+              </Pressable>
             </View>
           ))
         )}
@@ -223,9 +259,13 @@ export function DriverRideView({
         ) : null}
         {ride.status !== "inProgress" ? (
           <ActionButton
-            label="Iniciar carona"
+            label={
+              accepted.length > 0 && !allConfirmed
+                ? "Aguardando confirmação dos passageiros"
+                : "Iniciar carona"
+            }
             onPress={handleStart}
-            disabled={busy || accepted.length === 0}
+            disabled={busy || accepted.length === 0 || !allConfirmed}
             colors={colors}
           />
         ) : (
@@ -314,13 +354,22 @@ function ActionButton({
 const styles = StyleSheet.create({
   content: { padding: 20, gap: 8 },
   status: { fontSize: 14, fontWeight: "700", textTransform: "uppercase" },
-  route: { fontSize: 18, fontWeight: "700" },
-  seats: { fontSize: 14, marginBottom: 8 },
+  routeCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    padding: 14,
+    gap: 10,
+    marginTop: 4,
+  },
+  routeRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  routeText: { fontSize: 15, fontWeight: "600", flex: 1 },
+  seats: { fontSize: 14, marginTop: 8, marginBottom: 8 },
   section: { gap: 10, marginTop: 12 },
   sectionTitle: { fontSize: 16, fontWeight: "700" },
   requestRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   passengerRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   name: { fontSize: 15, fontWeight: "600" },
+  pendingConfirm: { fontSize: 12, fontWeight: "700", color: "#B26A00" },
   iconButton: {
     width: 40,
     height: 40,

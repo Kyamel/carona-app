@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { login } from "@data";
 
 import { authInputStyle, authStyles } from "@ui/components/auth/auth-styles";
+import { PasswordInput } from "@ui/components/auth/password-input";
 import { Colors } from "@ui/constants/theme";
 import { useColorScheme } from "@ui/hooks/use-color-scheme";
 
@@ -40,14 +41,10 @@ export function LoginForm() {
         autoComplete="email"
         keyboardType="email-address"
       />
-      <TextInput
-        style={[authStyles.input, authInputStyle(scheme)]}
-        placeholder="Senha"
-        placeholderTextColor={colors.icon}
+      <PasswordInput
         value={password}
         onChangeText={setPassword}
         autoComplete="current-password"
-        secureTextEntry
       />
       {error ? <Text style={authStyles.error}>{error}</Text> : null}
       <Pressable
