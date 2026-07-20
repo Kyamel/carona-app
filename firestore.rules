@@ -1,18 +1,803 @@
-rules_version='2'
+rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users (PRIVADO — contém e-mail e chave PIX; só o dono lê)
+    // Document ID: Firebase Auth uid
+    // Fields:
+    //   - id: string, immutable, equals uid
+    //   - name: string, 1..80
+    //   - email: string, immutable, equals auth token email (*.ufop.edu.br)
+    //   - pixKey: optional, null or string 1..140
+    //   - createdAt: timestamp, immutable
+    //   - updatedAt: timestamp
+    //   - photo: optional URL string, max 500
+    //   - bio: optional string, max 280
+    //   Subcollection: bookmarks/{bookmarkId}
+    //     - id, label (1..120), address? (<=200), latitude, longitude,
+    //       geoHash (1..12), createdAt — owner-only.
+    //
+    // Collection: rides
+    // Document ID: generated
+    // Fields:
+    //   - id: string == doc id; driverId: uid (creator); driverName: 1..80
+    //   - direction: 'toCampus' | 'fromCampus'
+    //   - origin/destination: location maps; o lado do campus deve estar
+    //     dentro da caixa nearIcea() conforme a direction
+    //   - routePolyline/routeDistanceMeters/routeDurationSeconds: opcionais
+    //     apenas para compatibilidade com docs antigos; o app novo não calcula
+    //     nem desenha rotas.
+    //   - availableSeats: int 1..8; seatsAvailable: int 0..availableSeats
+    //   - status: open | full | inProgress | completed | canceled
+    //   - participantIds: list de uids (driver + passageiros aceitos), 1..9,
+    //     append-only, controla leitura da carona encerrada
+    //   - driverPixKey: null; só vira string (1..140) na transição para
+    //     completed — o doc completed é legível apenas pelos participantes
+    //   - createdAt == request.time; expiresAt <= createdAt + 24h
+    //   - startedAt/endedAt: null | timestamp; canceledBy: null | uid
+    //   Subcollection: joinRequests/{passengerUid}
+    //     - id == passengerId == doc id; rideId; passengerName 1..80
+    //     - pickup/dropoff: location maps (lado do campus conforme direction)
+    //     - status: pending | accepted | declined | canceled
+    //     - createdAt; respondedAt: null | timestamp
+    //   Subcollection: passengers/{passengerUid} (criado pelo motorista no
+    //   aceite, no mesmo batch do joinRequest -> accepted)
+    //     - uid == doc id; name 1..80; pickup/dropoff; status:
+    //       accepted | canceled; joinedAt; canceledAt: null | timestamp
+    //
+    // Collection: rideOffers (listagem pública sem localização do motorista)
+    // Document ID: rideId
+    //   - id == rideId; rideId; driverName; direction; availableSeats;
+    //     seatsAvailable; status; createdAt; expiresAt
+    //   Não contém origin/destination. É criado/atualizado no mesmo batch da
+    //   ride correspondente e só lista docs open para matching.
+    //
+    // Collection: activeRides (mutex "1 carona ativa por usuário")
+    // Document ID: uid do dono
+    //   - uid == doc id; rideId; role: driver | passenger; createdAt
+    //   Criado no mesmo batch/transação da ride/joinRequest (as rules de
+    //   criação exigem getAfter deste doc). Sem update; delete pelo dono.
+    //
+    // Collection: cancellations (reputação; imutável)
+    // Document ID: generated
+    //   - uid (quem cancelou, == auth.uid); rideId; role; stage
+    //     (status da ride antes do cancelamento); createdAt == request.time
+    //   Verificado via getAfter: o cancelamento correspondente aconteceu no
+    //   mesmo batch.
+    //
+    // Collection: reviews (imutável)
+    // Document ID: `${rideId}_${raterId}_${rateeId}` (1 review por par/carona)
+    //   - id == doc id; rideId; raterId == auth.uid; raterName 1..80;
+    //     rateeId != raterId; rating int 1..5; text? <=500;
+    //     createdAt == request.time
+    //   Só para rides completed em que ambos são participantes.
+    // ===============================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // FLAG DE DEV: quando true, aceita qualquer e-mail verificado (para testar o
+    // fluxo com duas contas). DEIXE false EM PRODUÇÃO — é o que garante a
+    // restrição institucional UFOP. Espelha EXPO_PUBLIC_ALLOW_NON_UFOP no app.
+    function devAllowAnyEmail() {
+      return true;
+    }
+
+    // Qualquer subdomínio de ufop.edu.br (ufop.edu.br, aluno.ufop.edu.br, ...).
+    function hasUfopEmail() {
+      return isSignedIn() &&
+        request.auth.token.email is string &&
+        (
+          devAllowAnyEmail() ||
+          request.auth.token.email.matches('^[^@]+@([a-z0-9-]+\\.)*ufop\\.edu\\.br$')
+        );
+    }
+
+    function isUfopVerified() {
+      return hasUfopEmail() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isUfopVerified() && request.auth.uid == userId;
+    }
+
+    function validString(value, min, max) {
+      return value is string && value.size() >= min && value.size() <= max;
+    }
+
+    function validOptionalString(data, field, max) {
+      return !(field in data) ||
+        (data[field] is string && data[field].size() <= max);
+    }
+
+    function validUid(value) {
+      return validString(value, 1, 128);
+    }
+
+    function validUrl(value) {
+      return value is string &&
+        value.size() <= 500 &&
+        value.matches('^https?://.+');
+    }
+
+    function validOptionalUrl(data, field) {
+      return !(field in data) || validUrl(data[field]);
+    }
+
+    function validLocation(data) {
+      return data is map &&
+        data.keys().hasAll(['latitude', 'longitude', 'geoHash', 'label']) &&
+        data.keys().hasOnly([
+          'latitude',
+          'longitude',
+          'geoHash',
+          'label',
+          'address',
+        ]) &&
+        data.latitude is number &&
+        data.latitude >= -90 &&
+        data.latitude <= 90 &&
+        data.longitude is number &&
+        data.longitude >= -180 &&
+        data.longitude <= 180 &&
+        validString(data.geoHash, 1, 12) &&
+        validString(data.label, 1, 120) &&
+        validOptionalString(data, 'address', 200);
+    }
+
+    // Caixa de ~±440 m em torno do ICEA – UFOP João Monlevade
+    // (-19.8358432, -43.1678773). Espelha ICEA_BOUNDS em
+    // apps/backend/src/constants/campus.ts — manter em sincronia.
+    function nearIcea(data) {
+      return data.latitude > -19.8398432 &&
+        data.latitude < -19.8318432 &&
+        data.longitude > -43.1718773 &&
+        data.longitude < -43.1638773;
+    }
+
+    function validNullableUid(value) {
+      return value == null || validUid(value);
+    }
+
+    function validNullableTimestamp(value) {
+      return value == null || value is timestamp;
+    }
+
+    function immutable(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    function changedOnly(fields) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
+    }
+
+    function rideData(rideId) {
+      return get(/databases/$(database)/documents/rides/$(rideId)).data;
+    }
+
+    function rideAfter(rideId) {
+      return getAfter(/databases/$(database)/documents/rides/$(rideId)).data;
+    }
+
+    // O mutex de carona ativa precisa existir (e apontar para esta carona)
+    // depois do batch — impede entrar em duas caronas ao mesmo tempo.
+    function holdsMutexAfterWrite(rideId, role) {
+      return existsAfter(/databases/$(database)/documents/activeRides/$(request.auth.uid)) &&
+        getAfter(/databases/$(database)/documents/activeRides/$(request.auth.uid)).data.rideId == rideId &&
+        getAfter(/databases/$(database)/documents/activeRides/$(request.auth.uid)).data.role == role;
+    }
+
+    function validUser(data) {
+      return data.keys().hasAll(['id', 'name', 'email', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'id',
+          'name',
+          'email',
+          'pixKey',
+          'createdAt',
+          'updatedAt',
+          'photo',
+          'bio',
+        ]) &&
+        validUid(data.id) &&
+        validString(data.name, 1, 80) &&
+        validString(data.email, 1, 254) &&
+        (!('pixKey' in data) || data.pixKey == null || validString(data.pixKey, 1, 140)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        validOptionalUrl(data, 'photo') &&
+        validOptionalString(data, 'bio', 280);
+    }
+
+    function validRide(data, rideId) {
+      return data.keys().hasAll([
+          'id',
+          'driverId',
+          'driverName',
+          'direction',
+          'origin',
+          'destination',
+          'availableSeats',
+          'seatsAvailable',
+          'status',
+          'participantIds',
+          'driverPixKey',
+          'createdAt',
+          'expiresAt',
+          'startedAt',
+          'endedAt',
+          'canceledBy',
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'driverId',
+          'driverName',
+          'direction',
+          'origin',
+          'destination',
+          'routePolyline',
+          'routeDistanceMeters',
+          'routeDurationSeconds',
+          'availableSeats',
+          'seatsAvailable',
+          'status',
+          'participantIds',
+          'driverPixKey',
+          'createdAt',
+          'expiresAt',
+          'startedAt',
+          'endedAt',
+          'canceledBy',
+        ]) &&
+        data.id == rideId &&
+        validUid(data.driverId) &&
+        validString(data.driverName, 1, 80) &&
+        data.direction in ['toCampus', 'fromCampus'] &&
+        validLocation(data.origin) &&
+        validLocation(data.destination) &&
+        (!('routePolyline' in data) || validString(data.routePolyline, 1, 20000)) &&
+        (!('routeDistanceMeters' in data) ||
+          (data.routeDistanceMeters is number &&
+            data.routeDistanceMeters > 0 &&
+            data.routeDistanceMeters <= 500000)) &&
+        (!('routeDurationSeconds' in data) ||
+          (data.routeDurationSeconds is number &&
+            data.routeDurationSeconds > 0 &&
+            data.routeDurationSeconds <= 86400)) &&
+        data.availableSeats is int &&
+        data.availableSeats >= 1 &&
+        data.availableSeats <= 8 &&
+        data.seatsAvailable is int &&
+        data.seatsAvailable >= 0 &&
+        data.seatsAvailable <= data.availableSeats &&
+        data.status in ['open', 'full', 'inProgress', 'completed', 'canceled'] &&
+        data.participantIds is list &&
+        data.participantIds.size() >= 1 &&
+        data.participantIds.size() <= 9 &&
+        (data.driverPixKey == null || validString(data.driverPixKey, 1, 140)) &&
+        data.createdAt is timestamp &&
+        data.expiresAt is timestamp &&
+        data.expiresAt > data.createdAt &&
+        data.expiresAt <= data.createdAt + duration.value(24, 'h') &&
+        validNullableTimestamp(data.startedAt) &&
+        validNullableTimestamp(data.endedAt) &&
+        validNullableUid(data.canceledBy);
+    }
+
+    function validRideOffer(data, offerId) {
+      return data.keys().hasAll([
+          'id',
+          'rideId',
+          'driverName',
+          'direction',
+          'availableSeats',
+          'seatsAvailable',
+          'status',
+          'createdAt',
+          'expiresAt',
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'rideId',
+          'driverName',
+          'direction',
+          'availableSeats',
+          'seatsAvailable',
+          'status',
+          'createdAt',
+          'expiresAt',
+        ]) &&
+        data.id == offerId &&
+        data.rideId == offerId &&
+        validString(data.driverName, 1, 80) &&
+        data.direction in ['toCampus', 'fromCampus'] &&
+        data.availableSeats is int &&
+        data.availableSeats >= 1 &&
+        data.availableSeats <= 8 &&
+        data.seatsAvailable is int &&
+        data.seatsAvailable >= 0 &&
+        data.seatsAvailable <= data.availableSeats &&
+        data.status in ['open', 'full', 'inProgress', 'completed', 'canceled'] &&
+        data.createdAt is timestamp &&
+        data.expiresAt is timestamp &&
+        data.expiresAt > data.createdAt &&
+        data.expiresAt <= data.createdAt + duration.value(24, 'h');
+    }
+
+    function validJoinRequest(data, rideId, requestId) {
+      return data.keys().hasAll([
+          'id',
+          'rideId',
+          'passengerId',
+          'passengerName',
+          'pickup',
+          'dropoff',
+          'status',
+          'createdAt',
+          'respondedAt',
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'rideId',
+          'passengerId',
+          'pickup',
+          'dropoff',
+          'passengerName',
+          'status',
+          'createdAt',
+          'respondedAt',
+        ]) &&
+        data.id == requestId &&
+        data.rideId == rideId &&
+        data.passengerId == requestId &&
+        validString(data.passengerName, 1, 80) &&
+        validLocation(data.pickup) &&
+        validLocation(data.dropoff) &&
+        data.status in ['pending', 'accepted', 'declined', 'canceled'] &&
+        data.createdAt is timestamp &&
+        validNullableTimestamp(data.respondedAt);
+    }
+
+    function validPassenger(data, passengerId) {
+      return data.keys().hasAll([
+          'uid',
+          'name',
+          'pickup',
+          'dropoff',
+          'status',
+          'joinedAt',
+          'canceledAt',
+        ]) &&
+        data.keys().hasOnly([
+          'uid',
+          'name',
+          'pickup',
+          'dropoff',
+          'status',
+          'joinedAt',
+          'canceledAt',
+        ]) &&
+        data.uid == passengerId &&
+        validString(data.name, 1, 80) &&
+        validLocation(data.pickup) &&
+        validLocation(data.dropoff) &&
+        data.status in ['accepted', 'canceled'] &&
+        data.joinedAt is timestamp &&
+        validNullableTimestamp(data.canceledAt);
+    }
+
+    match /users/{userId} {
+      // Contém PII (e-mail, chave PIX): leitura só do dono. Nomes exibidos a
+      // terceiros são desnormalizados nos docs de carona.
+      allow read: if isSignedIn() && request.auth.uid == userId;
+
+      // Criado no cadastro, antes da verificação de e-mail — por isso exige
+      // apenas o domínio UFOP, não email_verified.
+      allow create: if isSignedIn() &&
+        request.auth.uid == userId &&
+        hasUfopEmail() &&
+        validUser(request.resource.data) &&
+        request.resource.data.id == userId &&
+        request.resource.data.email == request.auth.token.email &&
+        !('pixKey' in request.resource.data) &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.updatedAt == request.time;
+
+      allow update: if isOwner(userId) &&
+        validUser(request.resource.data) &&
+        immutable(['id', 'email', 'createdAt']) &&
+        request.resource.data.updatedAt == request.time;
+
+      allow delete: if false;
+
+      match /bookmarks/{bookmarkId} {
+        allow read, delete: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          request.resource.data.keys().hasAll([
+            'id', 'label', 'latitude', 'longitude', 'geoHash', 'createdAt',
+          ]) &&
+          request.resource.data.keys().hasOnly([
+            'id', 'label', 'address', 'latitude', 'longitude', 'geoHash', 'createdAt',
+          ]) &&
+          request.resource.data.id == bookmarkId &&
+          validString(request.resource.data.label, 1, 120) &&
+          validOptionalString(request.resource.data, 'address', 200) &&
+          request.resource.data.latitude is number &&
+          request.resource.data.latitude >= -90 &&
+          request.resource.data.latitude <= 90 &&
+          request.resource.data.longitude is number &&
+          request.resource.data.longitude >= -180 &&
+          request.resource.data.longitude <= 180 &&
+          validString(request.resource.data.geoHash, 1, 12) &&
+          request.resource.data.createdAt == request.time;
+
+        allow update: if false;
+      }
+    }
+
+    match /rideOffers/{offerId} {
+      // Listagem pública autenticada, propositalmente sem origem/destino.
+      allow read: if isUfopVerified();
+
+      allow create: if isUfopVerified() &&
+        validRideOffer(request.resource.data, offerId) &&
+        rideAfter(offerId).driverId == request.auth.uid &&
+        request.resource.data.driverName == rideAfter(offerId).driverName &&
+        request.resource.data.direction == rideAfter(offerId).direction &&
+        request.resource.data.availableSeats == rideAfter(offerId).availableSeats &&
+        request.resource.data.seatsAvailable == rideAfter(offerId).seatsAvailable &&
+        request.resource.data.status == rideAfter(offerId).status &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.expiresAt == rideAfter(offerId).expiresAt;
+
+      allow update: if isUfopVerified() &&
+        rideAfter(offerId).driverId == request.auth.uid &&
+        validRideOffer(request.resource.data, offerId) &&
+        immutable([
+          'id',
+          'rideId',
+          'driverName',
+          'direction',
+          'availableSeats',
+          'createdAt',
+          'expiresAt',
+        ]) &&
+        changedOnly(['status', 'seatsAvailable']) &&
+        request.resource.data.seatsAvailable == rideAfter(offerId).seatsAvailable &&
+        request.resource.data.status == rideAfter(offerId).status;
+
+      allow delete: if false;
+    }
+
+    match /rides/{rideId} {
+      // Contém origem/destino do motorista: só motorista e passageiros aceitos
+      // (participantIds) leem. Matching público usa rideOffers/{rideId}, sem
+      // localização.
+      allow read: if isUfopVerified() &&
+        resource.data.participantIds.hasAny([request.auth.uid]);
+
+      allow create: if isUfopVerified() &&
+        validRide(request.resource.data, rideId) &&
+        request.resource.data.driverId == request.auth.uid &&
+        request.resource.data.status == 'open' &&
+        request.resource.data.seatsAvailable == request.resource.data.availableSeats &&
+        request.resource.data.participantIds == [request.auth.uid] &&
+        request.resource.data.driverPixKey == null &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.startedAt == null &&
+        request.resource.data.endedAt == null &&
+        request.resource.data.canceledBy == null &&
+        (
+          (request.resource.data.direction == 'toCampus' &&
+            nearIcea(request.resource.data.destination)) ||
+          (request.resource.data.direction == 'fromCampus' &&
+            nearIcea(request.resource.data.origin))
+        ) &&
+        holdsMutexAfterWrite(rideId, 'driver') &&
+        existsAfter(/databases/$(database)/documents/rideOffers/$(rideId)) &&
+        getAfter(/databases/$(database)/documents/rideOffers/$(rideId)).data.status == 'open';
+
+      allow update: if isUfopVerified() &&
+        resource.data.driverId == request.auth.uid &&
+        validRide(request.resource.data, rideId) &&
+        immutable([
+          'id',
+          'driverId',
+          'driverName',
+          'direction',
+          'origin',
+          'destination',
+          'routePolyline',
+          'routeDistanceMeters',
+          'routeDurationSeconds',
+          'availableSeats',
+          'createdAt',
+          'expiresAt',
+        ]) &&
+        (
+          // Gestão da fila enquanto abre/fecha o carro: alternar open/full,
+          // aceitar passageiro (roster append-only + assento) ou devolver
+          // assento após desistência.
+          (
+            resource.data.status in ['open', 'full'] &&
+            request.resource.data.status in ['open', 'full'] &&
+            changedOnly(['status', 'seatsAvailable', 'participantIds']) &&
+            request.resource.data.participantIds.hasAll(resource.data.participantIds) &&
+            (
+              // Sem mudança de roster: alterna open/full e/ou devolve 1 assento
+              // após uma desistência observada (limitado por availableSeats no
+              // validRide).
+              (
+                request.resource.data.participantIds.size() == resource.data.participantIds.size() &&
+                request.resource.data.seatsAvailable >= resource.data.seatsAvailable &&
+                request.resource.data.seatsAvailable <= resource.data.seatsAvailable + 1
+              ) ||
+              // Aceita exatamente 1 passageiro: o novo uid (append via arrayUnion,
+              // portanto o último) precisa ter passengers/{uid} == accepted no
+              // mesmo batch, e o assento cai exatamente 1. Impede padding do
+              // participantIds com uids sem carona real.
+              (
+                request.resource.data.participantIds.size() == resource.data.participantIds.size() + 1 &&
+                request.resource.data.seatsAvailable == resource.data.seatsAvailable - 1 &&
+                getAfter(/databases/$(database)/documents/rides/$(rideId)/passengers/$(request.resource.data.participantIds[request.resource.data.participantIds.size() - 1])).data.status == 'accepted'
+              )
+            )
+          ) ||
+          // Iniciar a corrida.
+          (
+            resource.data.status in ['open', 'full'] &&
+            request.resource.data.status == 'inProgress' &&
+            request.resource.data.startedAt == request.time &&
+            changedOnly(['status', 'startedAt'])
+          ) ||
+          // Concluir (única transição que pode revelar a chave PIX — o doc
+          // completed só é legível pelos participantes).
+          (
+            resource.data.status == 'inProgress' &&
+            request.resource.data.status == 'completed' &&
+            request.resource.data.endedAt == request.time &&
+            changedOnly(['status', 'endedAt', 'driverPixKey'])
+          ) ||
+          // Cancelar como motorista (registrado em cancellations no batch).
+          (
+            resource.data.status in ['open', 'full', 'inProgress'] &&
+            request.resource.data.status == 'canceled' &&
+            request.resource.data.canceledBy == request.auth.uid &&
+            request.resource.data.endedAt == request.time &&
+            changedOnly(['status', 'canceledBy', 'endedAt'])
+          )
+        );
+
+      allow delete: if false;
+
+      match /joinRequests/{requestId} {
+        allow read: if isUfopVerified() &&
+          (
+            request.auth.uid == requestId ||
+            rideData(rideId).driverId == request.auth.uid
+          );
+
+        allow create: if isUfopVerified() &&
+          request.auth.uid == requestId &&
+          validJoinRequest(request.resource.data, rideId, requestId) &&
+          request.resource.data.status == 'pending' &&
+          request.resource.data.createdAt == request.time &&
+          request.resource.data.respondedAt == null &&
+          rideData(rideId).status == 'open' &&
+          rideData(rideId).driverId != request.auth.uid &&
+          (
+            (rideData(rideId).direction == 'toCampus' &&
+              nearIcea(request.resource.data.dropoff)) ||
+            (rideData(rideId).direction == 'fromCampus' &&
+              nearIcea(request.resource.data.pickup))
+          ) &&
+          holdsMutexAfterWrite(rideId, 'passenger');
+
+        allow update: if isUfopVerified() &&
+          validJoinRequest(request.resource.data, rideId, requestId) &&
+          immutable([
+            'id',
+            'rideId',
+            'passengerId',
+            'passengerName',
+            'pickup',
+            'dropoff',
+            'createdAt',
+          ]) &&
+          (
+            // Passageiro desiste do pedido pendente.
+            (
+              request.auth.uid == requestId &&
+              resource.data.status == 'pending' &&
+              request.resource.data.status == 'canceled' &&
+              changedOnly(['status'])
+            ) ||
+            // Passageiro re-pede na mesma carona (retoma o mutex no batch).
+            (
+              request.auth.uid == requestId &&
+              resource.data.status in ['canceled', 'declined'] &&
+              request.resource.data.status == 'pending' &&
+              changedOnly(['status']) &&
+              rideData(rideId).status == 'open' &&
+              holdsMutexAfterWrite(rideId, 'passenger')
+            ) ||
+            // Motorista aceita: o doc em passengers/ precisa nascer no mesmo
+            // batch (getAfter).
+            (
+              rideData(rideId).driverId == request.auth.uid &&
+              resource.data.status == 'pending' &&
+              request.resource.data.status == 'accepted' &&
+              request.resource.data.respondedAt == request.time &&
+              changedOnly(['status', 'respondedAt']) &&
+              getAfter(/databases/$(database)/documents/rides/$(rideId)/passengers/$(requestId)).data.status == 'accepted'
+            ) ||
+            // Motorista recusa.
+            (
+              rideData(rideId).driverId == request.auth.uid &&
+              resource.data.status == 'pending' &&
+              request.resource.data.status == 'declined' &&
+              request.resource.data.respondedAt == request.time &&
+              changedOnly(['status', 'respondedAt'])
+            )
+          );
+
+        allow delete: if false;
+      }
+
+      match /passengers/{passengerId} {
+        // Motorista, o próprio passageiro ou colegas da mesma carona.
+        allow read: if isUfopVerified() &&
+          (
+            request.auth.uid == passengerId ||
+            rideData(rideId).driverId == request.auth.uid ||
+            exists(/databases/$(database)/documents/rides/$(rideId)/passengers/$(request.auth.uid))
+          );
+
+        // Só o motorista cria, e apenas no batch em que o joinRequest do
+        // mesmo uid vira accepted.
+        allow create: if isUfopVerified() &&
+          rideData(rideId).driverId == request.auth.uid &&
+          validPassenger(request.resource.data, passengerId) &&
+          request.resource.data.status == 'accepted' &&
+          request.resource.data.joinedAt == request.time &&
+          request.resource.data.canceledAt == null &&
+          getAfter(/databases/$(database)/documents/rides/$(rideId)/joinRequests/$(passengerId)).data.status == 'accepted';
+
+        // Desistência do próprio passageiro (registrada em cancellations).
+        allow update: if isUfopVerified() &&
+          request.auth.uid == passengerId &&
+          validPassenger(request.resource.data, passengerId) &&
+          resource.data.status == 'accepted' &&
+          request.resource.data.status == 'canceled' &&
+          request.resource.data.canceledAt == request.time &&
+          changedOnly(['status', 'canceledAt']);
+
+        allow delete: if false;
+      }
+    }
+
+    match /activeRides/{userId} {
+      allow read: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+        request.resource.data.keys().hasAll(['uid', 'rideId', 'role', 'createdAt']) &&
+        request.resource.data.keys().hasOnly(['uid', 'rideId', 'role', 'createdAt']) &&
+        request.resource.data.uid == userId &&
+        validUid(request.resource.data.rideId) &&
+        request.resource.data.role in ['driver', 'passenger'] &&
+        request.resource.data.createdAt == request.time;
+
+      allow update: if false;
+
+      // Limitação conhecida (sem Cloud Functions): o dono pode deletar o mutex
+      // a qualquer momento — necessário para cancelar pedido pendente, sair de
+      // uma recusa e para o self-heal de mutex órfão/expirado. Um ator poderia
+      // abandonar uma carona por aqui sem gerar registro em cancellations
+      // (evasão de reputação), mas continua "preso" no roster do motorista até
+      // ele cancelar/concluir. Aceito para o plano Spark; ver
+      // firestore-security-analysis.md.
+      allow delete: if isOwner(userId);
+    }
+
+    match /cancellations/{cancellationId} {
+      // Alimenta a reputação (contagem por uid) — leitura para verificados.
+      allow read: if isUfopVerified();
+
+      // Só vale acompanhado do cancelamento real, no mesmo batch (getAfter).
+      allow create: if isUfopVerified() &&
+        request.resource.data.keys().hasAll(['uid', 'rideId', 'role', 'stage', 'createdAt']) &&
+        request.resource.data.keys().hasOnly(['uid', 'rideId', 'role', 'stage', 'createdAt']) &&
+        request.resource.data.uid == request.auth.uid &&
+        validUid(request.resource.data.rideId) &&
+        request.resource.data.role in ['driver', 'passenger'] &&
+        request.resource.data.stage in ['open', 'full', 'inProgress'] &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.stage == rideData(request.resource.data.rideId).status &&
+        (
+          (request.resource.data.role == 'driver' &&
+            rideAfter(request.resource.data.rideId).status == 'canceled' &&
+            rideAfter(request.resource.data.rideId).canceledBy == request.auth.uid) ||
+          (request.resource.data.role == 'passenger' &&
+            getAfter(/databases/$(database)/documents/rides/$(request.resource.data.rideId)/passengers/$(request.auth.uid)).data.status == 'canceled')
+        );
+
+      allow update, delete: if false;
+    }
+
+    match /reviews/{reviewId} {
+      // Reviews são públicas dentro da comunidade UFOP verificada.
+      allow read: if isUfopVerified();
+
+      allow create: if isUfopVerified() &&
+        request.resource.data.keys().hasAll([
+          'id', 'rideId', 'raterId', 'raterName', 'rateeId', 'rating', 'createdAt',
+        ]) &&
+        request.resource.data.keys().hasOnly([
+          'id', 'rideId', 'raterId', 'raterName', 'rateeId', 'rating', 'text', 'createdAt',
+        ]) &&
+        request.resource.data.id == reviewId &&
+        reviewId == request.resource.data.rideId + '_' + request.auth.uid + '_' + request.resource.data.rateeId &&
+        validUid(request.resource.data.rideId) &&
+        request.resource.data.raterId == request.auth.uid &&
+        validString(request.resource.data.raterName, 1, 80) &&
+        request.resource.data.raterName ==
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.name &&
+        validUid(request.resource.data.rateeId) &&
+        request.resource.data.rateeId != request.auth.uid &&
+        request.resource.data.rating is int &&
+        request.resource.data.rating >= 1 &&
+        request.resource.data.rating <= 5 &&
+        validOptionalString(request.resource.data, 'text', 500) &&
+        request.resource.data.createdAt == request.time &&
+        rideData(request.resource.data.rideId).status == 'completed' &&
+        rideData(request.resource.data.rideId).participantIds.hasAll([
+          request.auth.uid,
+          request.resource.data.rateeId,
+        ]);
+
+      allow update, delete: if false;
+    }
+
+    match /rideDisputes/{disputeId} {
+      // Relato de "não compareceu" numa carona concluída. Leitura para
+      // verificados (alimenta a reputação por agregação).
+      allow read: if isUfopVerified();
+
+      // Sobre uma carona concluída, entre dois participantes, e apenas nas
+      // direções válidas: passageiro relata o motorista, ou o motorista relata
+      // um passageiro (nunca passageiro↔passageiro). Id composto de 3 partes
+      // garante 1 relato por par/carona.
+      allow create: if isUfopVerified() &&
+        request.resource.data.keys().hasAll(['rideId', 'reporterId', 'reportedId', 'type', 'createdAt']) &&
+        request.resource.data.keys().hasOnly(['rideId', 'reporterId', 'reportedId', 'type', 'createdAt']) &&
+        disputeId == request.resource.data.rideId + '_' + request.auth.uid + '_' + request.resource.data.reportedId &&
+        request.resource.data.reporterId == request.auth.uid &&
+        validUid(request.resource.data.rideId) &&
+        validUid(request.resource.data.reportedId) &&
+        request.resource.data.reportedId != request.auth.uid &&
+        request.resource.data.type == 'no-show' &&
+        request.resource.data.createdAt == request.time &&
+        rideData(request.resource.data.rideId).status == 'completed' &&
+        rideData(request.resource.data.rideId).participantIds.hasAll([
+          request.auth.uid,
+          request.resource.data.reportedId,
+        ]) &&
+        (
+          rideData(request.resource.data.rideId).driverId == request.resource.data.reportedId ||
+          rideData(request.resource.data.rideId).driverId == request.auth.uid
+        );
+
+      allow update, delete: if false;
+    }
+
     match /{document=**} {
-      // This rule allows anyone with your database reference to view, edit,
-      // and delete all data in your database. It is useful for getting
-      // started, but it is configured to expire after 30 days because it
-      // leaves your app open to attackers. At that time, all client
-      // requests to your database will be denied.
-      //
-      // Make sure to write security rules for your app before that time, or
-      // else all client requests to your database will be denied until you
-      // update your rules.
-      allow read, write: if request.time < timestamp.date(2026, 8, 8);
+      allow read, write: if false;
     }
   }
 }
