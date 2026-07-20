@@ -93,6 +93,30 @@ export default function ProfileTab() {
     }
   }
 
+  function confirmRemoveBookmark(bookmark: Bookmark) {
+    Alert.alert(
+      "Remover local salvo",
+      `Remover "${bookmark.label}" dos seus locais salvos?`,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Remover",
+          style: "destructive",
+          onPress: async () => {
+            if (!user) {
+              return;
+            }
+            try {
+              await deleteBookmark(user.uid, bookmark.id);
+            } catch {
+              Alert.alert("Ops", "Não foi possível remover o local.");
+            }
+          },
+        },
+      ],
+    );
+  }
+
   return (
     <ScrollView
       style={{ backgroundColor: colors.background }}
@@ -170,7 +194,7 @@ export default function ProfileTab() {
             {bookmark.label}
           </Text>
           <Pressable
-            onPress={() => user && deleteBookmark(user.uid, bookmark.id)}
+            onPress={() => confirmRemoveBookmark(bookmark)}
             hitSlop={8}
           >
             <IconSymbol name="xmark" size={18} color={colors.icon} />

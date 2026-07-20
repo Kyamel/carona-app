@@ -56,12 +56,13 @@ service cloud.firestore {
     //       createdAt == request.time. Só o motorista e o passageiro daquela
     //       thread, e apenas após o aceite (passengers/{passengerUid} existe).
     //
-    // Collection: rideOffers (listagem pública sem localização do motorista)
+    // Collection: rideOffers (listagem pública)
     // Document ID: rideId
-    //   - id == rideId; rideId; driverName; direction; availableSeats;
-    //     seatsAvailable; status; createdAt; expiresAt
-    //   Não contém origin/destination. É criado/atualizado no mesmo batch da
-    //   ride correspondente e só lista docs open para matching.
+    //   - id == rideId; rideId; driverName; direction; endpointPin (localização
+    //     REAL do lado não-ICEA, validLocation); availableSeats; seatsAvailable;
+    //     status; createdAt; expiresAt
+    //   Criado/atualizado no mesmo batch da ride correspondente; só lista docs
+    //   open para matching. Comunidade fechada/confiável -> localização real.
     //
     // Collection: activeRides (mutex "1 carona ativa por usuário")
     // Document ID: uid do dono
@@ -325,7 +326,7 @@ service cloud.firestore {
         data.rideId == offerId &&
         validString(data.driverName, 1, 80) &&
         data.direction in ['toCampus', 'fromCampus'] &&
-        validPin(data.endpointPin) &&
+        validLocation(data.endpointPin) &&
         data.availableSeats is int &&
         data.availableSeats >= 1 &&
         data.availableSeats <= 8 &&
@@ -373,24 +374,6 @@ service cloud.firestore {
         validNullableTimestamp(data.respondedAt);
     }
 
-    // Pino PÚBLICO (rideOffers/rideRequests): só lat/lng/geoHash, sem label nem
-    // address (não vaza rua/ponto nomeado). O geoHash é limitado a 6 chars
-    // (~1.2 km), o que limita a precisão pesquisável. O app arredonda a
-    // coordenada (fuzzLocation); enforcement de arredondamento exato não é
-    // viável em rules — ver firestore-security-analysis.md.
-    function validPin(data) {
-      return data is map &&
-        data.keys().hasAll(['latitude', 'longitude', 'geoHash']) &&
-        data.keys().hasOnly(['latitude', 'longitude', 'geoHash']) &&
-        data.latitude is number &&
-        data.latitude >= -90 &&
-        data.latitude <= 90 &&
-        data.longitude is number &&
-        data.longitude >= -180 &&
-        data.longitude <= 180 &&
-        validString(data.geoHash, 1, 6);
-    }
-
     function validRideRequest(data, requestId) {
       return data.keys().hasAll([
           'id',
@@ -417,8 +400,8 @@ service cloud.firestore {
         data.id == requestId &&
         data.passengerId == requestId &&
         validString(data.passengerName, 1, 80) &&
-        validPin(data.originPin) &&
-        validPin(data.destinationPin) &&
+        validLocation(data.originPin) &&
+        validLocation(data.destinationPin) &&
         data.status in ['open', 'matched', 'canceled'] &&
         (data.matchedRideId == null || validUid(data.matchedRideId)) &&
         data.createdAt is timestamp &&
@@ -543,8 +526,8 @@ service cloud.firestore {
     }
 
     match /rideRequests/{requestId} {
-      // Pino público de "quero carona". Só fuzzy (validPin); ponto exato nunca
-      // entra aqui. Diferente da oferta, não precisa tocar o ICEA.
+      // Pedido público de "quero carona" com localização real (comunidade
+      // fechada/confiável). Diferente da oferta, não precisa tocar o ICEA.
       allow read: if isUfopVerified();
 
       allow create: if isOwner(requestId) &&

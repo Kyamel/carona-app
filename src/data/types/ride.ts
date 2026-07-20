@@ -1,4 +1,4 @@
-import type { GeoLocation, NamedLocation } from "./location";
+import type { NamedLocation } from "./location";
 
 export type RideDirection = "toCampus" | "fromCampus";
 
@@ -41,10 +41,9 @@ export type RideOffer = {
   rideId: string;
   driverName: string;
   direction: RideDirection;
-  // Pino público FUZZY do lado não-ICEA da oferta (de onde o motorista sai, ou
-  // para onde vai). O ponto exato fica só na ride privada; isto aqui é borrado
-  // pro nível de bairro (ver fuzzLocation).
-  endpointPin: GeoLocation;
+  // Local público do lado não-ICEA da oferta (de onde o motorista sai, ou para
+  // onde vai). Localização real (a comunidade é fechada/confiável).
+  endpointPin: NamedLocation;
   availableSeats: number;
   seatsAvailable: number;
   status: RideStatus;
@@ -56,15 +55,14 @@ export type RideRequestStatus = "open" | "matched" | "canceled";
 
 // Pedido de carona PÚBLICO, simétrico a RideOffer. Diferente da oferta, o
 // pedido não precisa tocar o ICEA (pode ser no meio do caminho), então carrega
-// origem e destino. Ambos FUZZY — ponto exato só entra no joinRequest privado
-// quando há match.
+// origem e destino — localização real (comunidade fechada/confiável).
 export type RideRequest = {
   // id == passengerId == uid (1 pedido ativo por pessoa).
   id: string;
   passengerId: string;
   passengerName: string;
-  originPin: GeoLocation;
-  destinationPin: GeoLocation;
+  originPin: NamedLocation;
+  destinationPin: NamedLocation;
   status: RideRequestStatus;
   // Preenchido pelo motorista quando aceita o pedido (status -> matched); o
   // cliente do requester lê isto para promover o próprio mutex a passageiro.

@@ -106,26 +106,28 @@ export function useNotifications() {
 // Fica dentro do provider para ter acesso ao notify().
 function RideNotificationBridge() {
   const { notify } = useNotifications();
-  const { role, ride, myJoinRequest, passengers, flagAcceptance } =
+  const { role, ride, myJoinRequest, pendingJoinCount, flagAcceptance } =
     useRideSession();
 
-  const prevPassengerCount = useRef(passengers.length);
+  const prevPendingCount = useRef(pendingJoinCount);
   const prevRequestStatus = useRef(myJoinRequest?.status ?? null);
   const prevRideStatus = useRef(ride?.status ?? null);
 
-  // Motorista: novo passageiro entrou no carro.
+  // Motorista: só é útil ser avisado quando alguém PEDE pra entrar (o aceite é
+  // ação do próprio motorista, então não gera notificação/badge pra ele).
   useEffect(() => {
-    if (role === "driver" && passengers.length > prevPassengerCount.current) {
+    if (role === "driver" && pendingJoinCount > prevPendingCount.current) {
       notify({
-        title: "Novo passageiro",
-        message: "Um passageiro entrou na sua carona.",
+        title: "Novo pedido de carona",
+        message: "Alguém quer entrar na sua carona. Abra a aba Carona.",
       });
       flagAcceptance();
     }
-    prevPassengerCount.current = passengers.length;
-  }, [role, passengers.length, notify, flagAcceptance]);
+    prevPendingCount.current = pendingJoinCount;
+  }, [role, pendingJoinCount, notify, flagAcceptance]);
 
-  // Passageiro: pedido aceito ou recusado.
+  // Passageiro: pedido aceito (por um motorista que ofereceu, ou por alguém que
+  // aceitou seu pedido público) ou recusado.
   useEffect(() => {
     const status = myJoinRequest?.status ?? null;
     if (status !== prevRequestStatus.current) {

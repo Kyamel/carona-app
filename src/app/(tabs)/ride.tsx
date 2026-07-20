@@ -12,10 +12,6 @@ import { IconSymbol } from "@ui/components/icons/icon-symbol";
 import { PassengerRideView } from "@ui/components/ride/passenger-ride-view";
 import { useColorScheme } from "@ui/hooks/use-color-scheme";
 import { useSession } from "@ui/hooks/use-session";
-import {
-  clearRequestEndpoints,
-  recallRequestEndpoints,
-} from "@ui/lib/request-endpoints";
 
 export default function RideTab() {
   const { user } = useSession();
@@ -104,14 +100,11 @@ function PendingRideRequest({
 function SeekingRideRequest({ uid }: { uid: string }) {
   const scheme = useColorScheme() ?? "light";
   const colors = Colors[scheme];
-  // Pontos exatos escolhidos ao publicar (só nesta sessão); o doc público não
-  // guarda rótulo.
-  const endpoints = recallRequestEndpoints();
+  const { myRideRequest } = useRideSession();
 
   async function handleCancel() {
     try {
       await cancelRideRequest(uid);
-      clearRequestEndpoints();
     } catch (cause) {
       Alert.alert(
         "Ops",
@@ -129,18 +122,18 @@ function SeekingRideRequest({ uid }: { uid: string }) {
         Aguardando um motorista
       </Text>
 
-      {endpoints ? (
+      {myRideRequest ? (
         <View style={[styles.routeCard, { borderColor: colors.icon }]}>
           <View style={styles.routeRow}>
             <IconSymbol name="location.fill" size={16} color="#1565C0" />
             <Text style={[styles.routeText, { color: colors.text }]}>
-              {endpoints.origin.label}
+              {myRideRequest.originPin.label}
             </Text>
           </View>
           <View style={styles.routeRow}>
             <IconSymbol name="mappin" size={16} color="#C8102E" />
             <Text style={[styles.routeText, { color: colors.text }]}>
-              {endpoints.destination.label}
+              {myRideRequest.destinationPin.label}
             </Text>
           </View>
         </View>

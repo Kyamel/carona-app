@@ -19,16 +19,12 @@ import {
 } from "firebase/firestore";
 
 import { db } from "../lib/firebase";
-import { distanceBetweenKm, fuzzLocation } from "../lib/geo";
+import { distanceBetweenKm } from "../lib/geo";
 import {
   nullableTimestampToDate,
   timestampToDate,
 } from "../lib/firestore-helpers";
-import type {
-  Coordinates,
-  GeoLocation,
-  NamedLocation,
-} from "../types/location";
+import type { Coordinates, NamedLocation } from "../types/location";
 import type {
   JoinRequest,
   Ride,
@@ -172,11 +168,10 @@ export async function createRide(input: CreateRideInput): Promise<string> {
     new Date(Date.now() + input.durationMinutes * 60_000),
   );
 
-  // Pino público borrado do lado não-ICEA (de onde sai / para onde vai). O
-  // ponto exato (origin/destination) fica só na ride privada.
-  const endpointPin = fuzzLocation(
-    input.direction === "toCampus" ? input.origin : input.destination,
-  );
+  // Local público do lado não-ICEA (de onde sai / para onde vai) — localização
+  // real (comunidade fechada/confiável).
+  const endpointPin =
+    input.direction === "toCampus" ? input.origin : input.destination;
 
   await runTransaction(db, async (transaction) => {
     const mutex = await transaction.get(activeRideRef(input.driverId));
@@ -544,11 +539,9 @@ export async function confirmRidePassenger(
   rideId: string,
   passengerId: string,
 ): Promise<void> {
-  await setDoc(
-    passengerRef(rideId, passengerId),
-    { confirmed: true },
-    { merge: true },
-  );
+  await setDoc(passengerRef(rideId, passengerId), { confirmed: true }, {
+    merge: true,
+  });
 }
 
 // Pedinte recusa a proposta do motorista (antes de confirmar). Diferente de
@@ -705,27 +698,17 @@ function rideRequestFromSnapshot(
   };
 }
 
-function pinToNamedLocation(pin: GeoLocation, label: string): NamedLocation {
-  return {
-    latitude: pin.latitude,
-    longitude: pin.longitude,
-    geoHash: pin.geoHash,
-    label,
-  };
-}
-
 export type CreateRideRequestInput = {
   passengerId: string;
   passengerName: string;
-  // Pontos EXATOS escolhidos pelo usuário; são borrados aqui e só a versão
-  // fuzzy vai pro doc público.
-  origin: Coordinates;
-  destination: Coordinates;
+  // Locais reais escolhidos pelo usuário (comunidade fechada/confiável).
+  origin: NamedLocation;
+  destination: NamedLocation;
   durationMinutes: number;
 };
 
-// Publica um pedido de carona (pino público) e segura o mutex como 'requester'
-// na mesma transação. O pino é FUZZY; o ponto exato não é persistido.
+// Publica um pedido de carona público e segura o mutex como 'requester' na mesma
+// transação. Guarda a localização real de origem e destino.
 export async function createRideRequest(
   input: CreateRideRequestInput,
 ): Promise<void> {
@@ -752,8 +735,8 @@ export async function createRideRequest(
       id: input.passengerId,
       passengerId: input.passengerId,
       passengerName: input.passengerName,
-      originPin: fuzzLocation(input.origin),
-      destinationPin: fuzzLocation(input.destination),
+      originPin: input.origin,
+      destinationPin: input.destination,
       status: "open",
       matchedRideId: null,
       createdAt: serverTimestamp(),
@@ -852,11 +835,9 @@ export async function acceptRideRequest(
       throw new Error("Este pedido não está mais disponível.");
     }
 
-    const pickup = pinToNamedLocation(request.originPin, "Embarque aprox.");
-    const dropoff = pinToNamedLocation(
-      request.destinationPin,
-      "Desembarque aprox.",
-    );
+    // Localização real do pedido: o motorista já vê onde embarcar/desembarcar.
+    const pickup = request.originPin;
+    const dropoff = request.destinationPin;
     const seatsLeft = ride.data().seatsAvailable - 1;
 
     transaction.set(joinRequestRef(rideId, request.id), {

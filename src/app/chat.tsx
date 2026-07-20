@@ -6,14 +6,13 @@ import {
 import { useHeaderHeight } from "@react-navigation/elements";
 import {
   FlatList,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
@@ -82,7 +81,7 @@ export default function ChatScreen() {
       <Stack.Screen options={{ title: title ?? "Conversa" }} />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        behavior="padding"
         keyboardVerticalOffset={headerHeight}
       >
         <FlatList

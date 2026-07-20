@@ -2,16 +2,24 @@ import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text } from "react-native";
 
+import type { ActiveRideRole } from "@data";
+
 import { useRideSession, type RidePhase } from "@ui/providers/ride-session";
+
+// Verde para quem oferece, azul para quem pede/embarca. Espelha as cores dos
+// modos do mapa (OFFER_COLOR / REQUEST_COLOR).
+export function rideBarColor(role: ActiveRideRole | null): string {
+  return role === "driver" ? "#2E7D32" : "#1565C0";
+}
 
 const LABELS: Record<RidePhase, string> = {
   idle: "",
-  seeking: "Pedido de carona publicado",
-  requesting: "Procurando carona",
-  waiting: "Carona confirmada — aguardando início",
+  seeking: "Pedido de carona publicado...",
+  requesting: "Procurando carona...",
+  waiting: "Carona confirmada; aguardando início...",
   offering: "Oferecendo carona",
-  full: "Carro cheio — aguardando início",
-  inProgress: "Carona em andamento",
+  full: "Carro cheio; aguardando início...",
+  inProgress: "Carona em andamento...",
 };
 
 function formatElapsed(sinceMs: number): string {
@@ -26,7 +34,7 @@ function formatElapsed(sinceMs: number): string {
 // Barra fixa no topo, visível em todas as abas enquanto há carona ativa.
 export function TimerBar() {
   const router = useRouter();
-  const { phase, since } = useRideSession();
+  const { phase, since, role } = useRideSession();
 
   // Número (não Date): estável entre renders, então o efeito só reinicia
   // quando o instante de referência realmente muda.
@@ -55,7 +63,7 @@ export function TimerBar() {
 
   return (
     <Pressable
-      style={styles.bar}
+      style={[styles.bar, { backgroundColor: rideBarColor(role) }]}
       onPress={() => router.navigate("/(tabs)/ride")}
     >
       <Text style={styles.label}>{LABELS[phase]}</Text>
@@ -66,7 +74,6 @@ export function TimerBar() {
 
 const styles = StyleSheet.create({
   bar: {
-    backgroundColor: "#C8102E",
     paddingHorizontal: 16,
     paddingVertical: 10,
     flexDirection: "row",

@@ -40,12 +40,9 @@ export default function ReviewScreen() {
   const [drafts, setDrafts] = useState<Record<string, ReviewDraft>>({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [confirmedHappened, setConfirmedHappened] = useState(false);
-  // Passageiros que o motorista marcou como "não compareceu".
+  // Participantes marcados como "não compareceu" (motorista marca passageiros;
+  // passageiro marca o motorista). Vira relato em vez de avaliação.
   const [noShow, setNoShow] = useState<Record<string, boolean>>({});
-
-  const isPassenger = !!ride && !!user && ride.driverId !== user.uid;
-  const isDriver = !!ride && !!user && ride.driverId === user.uid;
 
   useEffect(() => {
     if (!rideId || !user) {
@@ -121,27 +118,6 @@ export default function ReviewScreen() {
     }
   }
 
-  async function handleNoShow() {
-    if (!ride || !user) {
-      return;
-    }
-    setSubmitting(true);
-    try {
-      await reportNoShow(ride.id, user.uid, ride.driverId);
-      Alert.alert(
-        "Relato registrado",
-        "Obrigado. Isso ajuda a manter a comunidade confiável.",
-      );
-      router.back();
-    } catch (cause) {
-      Alert.alert(
-        "Não foi possível registrar",
-        cause instanceof Error ? cause.message : "Tente novamente.",
-      );
-      setSubmitting(false);
-    }
-  }
-
   if (loading) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
@@ -150,143 +126,123 @@ export default function ReviewScreen() {
     );
   }
 
-  // Passageiro precisa primeiro confirmar que a carona aconteceu; só então
-  // segue para as estrelas. É o canal para relatar um "não compareceu".
-  const needsConfirmation = isPassenger && !confirmedHappened;
-
   return (
     <ScrollView
       style={{ backgroundColor: colors.background }}
       contentContainerStyle={styles.content}
     >
       <Text style={[styles.heading, { color: colors.text }]}>
-        {needsConfirmation ? "A carona aconteceu?" : "Como foi a carona?"}
+        Como foi a carona?
+      </Text>
+      <Text style={{ color: colors.icon }}>
+        Dê sua nota. Se a carona não aconteceu, marque quem não compareceu.
       </Text>
 
-      {needsConfirmation ? (
-        <View style={{ gap: 12 }}>
-          <Text style={{ color: colors.icon }}>
-            Confirme que o motorista realmente realizou a carona.
+      {ride?.driverPixKey && ride.driverId !== user?.uid ? (
+        <View style={[styles.pix, { borderColor: colors.tint }]}>
+          <Text style={{ color: colors.text, fontWeight: "600" }}>
+            Gorjeta (opcional) via PIX
           </Text>
-          <Pressable
-            style={[styles.submit, { backgroundColor: colors.tint }]}
-            disabled={submitting}
-            onPress={() => setConfirmedHappened(true)}
-          >
-            <Text style={styles.submitText}>Sim, aconteceu</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.noShow, { opacity: submitting ? 0.5 : 1 }]}
-            disabled={submitting}
-            onPress={handleNoShow}
-          >
-            <Text style={styles.noShowText}>
-              Não aconteceu / motorista não apareceu
-            </Text>
-          </Pressable>
+          <Text selectable style={{ color: colors.tint, fontSize: 16 }}>
+            {ride.driverPixKey}
+          </Text>
         </View>
+      ) : null}
+
+      {ratees.length === 0 ? (
+        <Text style={{ color: colors.icon }}>
+          Não há ninguém para avaliar nesta carona.
+        </Text>
       ) : (
-        <>
-          {ride?.driverPixKey && ride.driverId !== user?.uid ? (
-            <View style={[styles.pix, { borderColor: colors.tint }]}>
-              <Text style={{ color: colors.text, fontWeight: "600" }}>
-                Gorjeta (opcional) via PIX
+        ratees.map((ratee) => {
+          const flagged = !!noShow[ratee.id];
+          const isRateeDriver = ratee.id === ride?.driverId;
+          const iAmDriver = ride?.driverId === user?.uid;
+          // "Não compareceu" só faz sentido (e as rules só aceitam) na direção
+          // motorista↔passageiro; entre co-caronistas não há relato de ausência.
+          const canFlag = iAmDriver || isRateeDriver;
+          return (
+            <View key={ratee.id} style={styles.rateeCard}>
+              <Text style={[styles.name, { color: colors.text }]}>
+                {ratee.name}
               </Text>
-              <Text selectable style={{ color: colors.tint, fontSize: 16 }}>
-                {ride.driverPixKey}
-              </Text>
-            </View>
-          ) : null}
 
-          {ratees.length === 0 ? (
-            <Text style={{ color: colors.icon }}>
-              Não há ninguém para avaliar nesta carona.
-            </Text>
-          ) : (
-            ratees.map((ratee) => {
-              const flagged = !!noShow[ratee.id];
-              return (
-                <View key={ratee.id} style={styles.rateeCard}>
-                  <Text style={[styles.name, { color: colors.text }]}>
-                    {ratee.name}
+              {/* O motorista marca um passageiro; o passageiro marca o
+                  motorista. Vira um relato no lugar da avaliação. */}
+              {canFlag ? (
+                <Pressable
+                  onPress={() =>
+                    setNoShow((current) => ({
+                      ...current,
+                      [ratee.id]: !current[ratee.id],
+                    }))
+                  }
+                  style={[
+                    styles.flag,
+                    flagged
+                      ? { backgroundColor: "#C8102E", borderColor: "#C8102E" }
+                      : { borderColor: "#C8102E" },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: flagged ? "#fff" : "#C8102E",
+                      fontWeight: "600",
+                      fontSize: 13,
+                    }}
+                  >
+                    {flagged
+                      ? "✓ Não compareceu"
+                      : isRateeDriver
+                        ? "Motorista não apareceu"
+                        : "Não compareceu"}
                   </Text>
+                </Pressable>
+              ) : null}
 
-                  {/* Só o motorista pode marcar um passageiro como ausente. */}
-                  {isDriver ? (
-                    <Pressable
-                      onPress={() =>
-                        setNoShow((current) => ({
-                          ...current,
-                          [ratee.id]: !current[ratee.id],
-                        }))
-                      }
-                      style={[
-                        styles.flag,
-                        flagged
-                          ? {
-                              backgroundColor: "#C8102E",
-                              borderColor: "#C8102E",
-                            }
-                          : { borderColor: "#C8102E" },
-                      ]}
-                    >
-                      <Text
-                        style={{
-                          color: flagged ? "#fff" : "#C8102E",
-                          fontWeight: "600",
-                          fontSize: 13,
-                        }}
-                      >
-                        {flagged ? "✓ Não compareceu" : "Não compareceu"}
-                      </Text>
-                    </Pressable>
-                  ) : null}
-
-                  {!flagged ? (
-                    <>
-                      <StarRating
-                        value={drafts[ratee.id]?.rating ?? 5}
-                        onChange={(rating) => setDraft(ratee.id, { rating })}
-                      />
-                      <TextInput
-                        style={[
-                          styles.input,
-                          { color: colors.text, borderColor: colors.icon },
-                        ]}
-                        placeholder="Comentário (opcional)"
-                        placeholderTextColor={colors.icon}
-                        value={drafts[ratee.id]?.text ?? ""}
-                        onChangeText={(text) => setDraft(ratee.id, { text })}
-                        multiline
-                      />
-                    </>
-                  ) : null}
-                </View>
-              );
-            })
-          )}
-
-          <Pressable
-            style={[styles.submit, { backgroundColor: colors.tint }]}
-            disabled={submitting}
-            onPress={ratees.length === 0 ? () => router.back() : handleSubmit}
-          >
-            {submitting ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.submitText}>
-                {ratees.length === 0 ? "Fechar" : "Enviar avaliações"}
-              </Text>
-            )}
-          </Pressable>
-
-          {ratees.length > 0 ? (
-            <Pressable onPress={() => router.back()} style={styles.skip}>
-              <Text style={{ color: colors.icon }}>Pular</Text>
-            </Pressable>
-          ) : null}
-        </>
+              {!flagged ? (
+                <>
+                  <StarRating
+                    value={drafts[ratee.id]?.rating ?? 5}
+                    onChange={(rating) => setDraft(ratee.id, { rating })}
+                  />
+                  <TextInput
+                    style={[
+                      styles.input,
+                      { color: colors.text, borderColor: colors.icon },
+                    ]}
+                    placeholder="Comentário (opcional)"
+                    placeholderTextColor={colors.icon}
+                    value={drafts[ratee.id]?.text ?? ""}
+                    onChangeText={(text) => setDraft(ratee.id, { text })}
+                    multiline
+                  />
+                </>
+              ) : null}
+            </View>
+          );
+        })
       )}
+
+      <Pressable
+        style={[styles.submit, { backgroundColor: colors.tint }]}
+        disabled={submitting}
+        onPress={ratees.length === 0 ? () => router.back() : handleSubmit}
+      >
+        {submitting ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.submitText}>
+            {ratees.length === 0 ? "Fechar" : "Enviar"}
+          </Text>
+        )}
+      </Pressable>
+
+      {ratees.length > 0 ? (
+        <Pressable onPress={() => router.back()} style={styles.skip}>
+          <Text style={{ color: colors.icon }}>Pular</Text>
+        </Pressable>
+      ) : null}
     </ScrollView>
   );
 }
@@ -318,14 +274,6 @@ const styles = StyleSheet.create({
   },
   submitText: { color: "#fff", fontWeight: "700", fontSize: 16 },
   skip: { alignItems: "center", paddingVertical: 8 },
-  noShow: {
-    borderWidth: 1,
-    borderColor: "#C8102E",
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: "center",
-  },
-  noShowText: { color: "#C8102E", fontWeight: "700", fontSize: 15 },
   flag: {
     alignSelf: "flex-start",
     borderWidth: 1,

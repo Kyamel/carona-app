@@ -8,6 +8,7 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { View } from "react-native";
 import "react-native-reanimated";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import {
     initialWindowMetrics,
     SafeAreaProvider,
@@ -17,7 +18,7 @@ import {
 import { Colors } from "@ui/constants/theme";
 import { NotificationProvider } from "@ui/providers/notifications";
 import { RideSessionProvider, useRideSession } from "@ui/providers/ride-session";
-import { TimerBar } from "@ui/components/timer-bar";
+import { TimerBar, rideBarColor } from "@ui/components/timer-bar";
 import { useColorScheme } from "@ui/hooks/use-color-scheme";
 import { SessionProvider, useSession } from "@ui/hooks/use-session";
 
@@ -48,7 +49,7 @@ function RootNavigator() {
   const scheme = useColorScheme() ?? "light";
   const colors = Colors[scheme];
   const { user, loading } = useSession();
-  const { phase } = useRideSession();
+  const { phase, role } = useRideSession();
 
   if (loading) {
     return null;
@@ -56,6 +57,7 @@ function RootNavigator() {
 
   const signedIn = !!user && user.emailVerified;
   const timerActive = signedIn && phase !== "idle";
+  const barColor = rideBarColor(role);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -64,7 +66,7 @@ function RootNavigator() {
       <View
         style={{
           height: insets.top,
-          backgroundColor: timerActive ? "#C8102E" : colors.background,
+          backgroundColor: timerActive ? barColor : colors.background,
         }}
       />
       {signedIn ? <RideCompletionWatcher /> : null}
@@ -98,18 +100,20 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-      <SessionProvider>
-        <RideSessionProvider>
-          <NotificationProvider>
-            <ThemeProvider
-              value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
-            >
-              <RootNavigator />
-              <StatusBar style="auto" />
-            </ThemeProvider>
-          </NotificationProvider>
-        </RideSessionProvider>
-      </SessionProvider>
+      <KeyboardProvider>
+        <SessionProvider>
+          <RideSessionProvider>
+            <NotificationProvider>
+              <ThemeProvider
+                value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
+              >
+                <RootNavigator />
+                <StatusBar style="auto" />
+              </ThemeProvider>
+            </NotificationProvider>
+          </RideSessionProvider>
+        </SessionProvider>
+      </KeyboardProvider>
     </SafeAreaProvider>
   );
 }

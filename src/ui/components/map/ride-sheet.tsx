@@ -7,6 +7,8 @@ import { Colors } from "@ui/constants/theme";
 import { IconSymbol } from "@ui/components/icons/icon-symbol";
 import { useColorScheme } from "@ui/hooks/use-color-scheme";
 
+const ICEA_LABEL = "ICEA – UFOP";
+
 type RideSheetProps = {
   offer: RideOffer;
   onRequest: () => void;
@@ -20,8 +22,12 @@ export function RideSheet({ offer, onRequest, onClose }: RideSheetProps) {
   const colors = Colors[scheme];
 
   const takenSeats = offer.availableSeats - offer.seatsAvailable;
-  const directionLabel =
-    offer.direction === "toCampus" ? "Indo para o ICEA" : "Saindo do ICEA";
+
+  // Toda carona toca o ICEA; o endpoint é o outro extremo (localização real). A
+  // direção diz qual é a origem e qual é o destino.
+  const area = offer.endpointPin.label;
+  const origin = offer.direction === "toCampus" ? area : ICEA_LABEL;
+  const destination = offer.direction === "toCampus" ? ICEA_LABEL : area;
 
   return (
     <View
@@ -42,17 +48,26 @@ export function RideSheet({ offer, onRequest, onClose }: RideSheetProps) {
         </Pressable>
       </View>
 
-      <View style={styles.route}>
-        <Text
-          style={[styles.routeText, { color: colors.text }]}
-          numberOfLines={1}
-        >
-          {directionLabel}
-        </Text>
+      <View style={[styles.routeCard, { borderColor: colors.icon }]}>
+        <View style={styles.route}>
+          <IconSymbol name="location.fill" size={16} color="#1565C0" />
+          <Text
+            style={[styles.routeText, { color: colors.text }]}
+            numberOfLines={1}
+          >
+            {origin}
+          </Text>
+        </View>
+        <View style={styles.route}>
+          <IconSymbol name="mappin" size={16} color="#C8102E" />
+          <Text
+            style={[styles.routeText, { color: colors.text }]}
+            numberOfLines={1}
+          >
+            {destination}
+          </Text>
+        </View>
       </View>
-      <Text style={{ color: colors.icon, fontSize: 13 }}>
-        O local de saída do motorista aparece depois que ele aceitar.
-      </Text>
 
       <View style={styles.stats}>
         <Stat
@@ -127,6 +142,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   driver: { fontSize: 18, fontWeight: "700" },
+  routeCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    padding: 14,
+    gap: 10,
+  },
   route: { flexDirection: "row", alignItems: "center", gap: 8 },
   routeText: { flex: 1, fontSize: 15 },
   stats: { flexDirection: "row", flexWrap: "wrap", gap: 16 },

@@ -28,7 +28,6 @@ import { LocationPicker } from "@ui/components/location-picker";
 import { Colors } from "@ui/constants/theme";
 import { useColorScheme } from "@ui/hooks/use-color-scheme";
 import { getCurrentNamedLocation } from "@ui/lib/location";
-import { rememberRequestEndpoints } from "@ui/lib/request-endpoints";
 
 export type MapMode = "request" | "offer";
 
@@ -159,9 +158,6 @@ export function CreateSheet({
           destination,
           durationMinutes: DURATION_MINUTES,
         });
-        // Guarda os pontos EXATOS (só nesta sessão) para exibir origem → destino
-        // na aba Carona; o doc público só tem o pino borrado, sem rótulo.
-        rememberRequestEndpoints(origin, destination);
       } else if (mode === "offer" && endpoint) {
         const { rideOrigin, rideDestination } = resolveIceaEndpoints(
           endpoint,

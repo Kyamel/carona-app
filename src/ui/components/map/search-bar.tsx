@@ -28,6 +28,10 @@ type SearchBarProps = {
   // tema quando não informado.
   tintColor?: string;
   placeholder?: string;
+  // Aberto/fechado é controlado pelo pai para que tocar no modo já selecionado
+  // possa reabrir a busca.
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
 };
 
 export function SearchBar({
@@ -36,12 +40,13 @@ export function SearchBar({
   bookmarks = [],
   tintColor,
   placeholder = "Para onde você vai?",
+  expanded,
+  onExpandedChange,
 }: SearchBarProps) {
   const scheme = useColorScheme() ?? "light";
   const colors = Colors[scheme];
   const accent = tintColor ?? colors.tint;
 
-  const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
@@ -79,7 +84,7 @@ export function SearchBar({
   }, [expanded, query]);
 
   function close() {
-    setExpanded(false);
+    onExpandedChange(false);
     setQuery("");
     setSuggestions([]);
     setError(null);
@@ -107,7 +112,10 @@ export function SearchBar({
   return (
     <View style={styles.container} pointerEvents="box-none">
       {expanded ? (
-        <View style={[styles.card, { backgroundColor: colors.background }]}>
+        <>
+          {/* Toque fora do card fecha a busca (antes só o X fechava). */}
+          <Pressable style={styles.backdrop} onPress={close} />
+          <View style={[styles.card, { backgroundColor: colors.background }]}>
           <View style={styles.inputRow}>
             <TextInput
               style={[styles.input, { color: colors.text }]}
@@ -184,14 +192,15 @@ export function SearchBar({
               </View>
             </Pressable>
           ))}
-        </View>
+          </View>
+        </>
       ) : (
         <Pressable
           style={[
             styles.pill,
             { backgroundColor: colors.background, borderColor: accent },
           ]}
-          onPress={() => setExpanded(true)}
+          onPress={() => onExpandedChange(true)}
         >
           <IconSymbol name="magnifyingglass" size={20} color={accent} />
           <Text
@@ -221,6 +230,15 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     zIndex: 10,
+  },
+  // Cobre a tela toda (estende bem além do container posicionado) para captar
+  // toques fora do card e fechar a busca.
+  backdrop: {
+    position: "absolute",
+    top: -1000,
+    bottom: -1000,
+    left: -1000,
+    right: -1000,
   },
   pill: {
     flexDirection: "row",

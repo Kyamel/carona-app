@@ -6,11 +6,16 @@ import {
   type ComponentProps,
 } from "react";
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import MapView, {
+  Marker,
+  PROVIDER_GOOGLE,
+  type LongPressEvent,
+} from "react-native-maps";
 
 import {
   acceptRideRequest,
   bookmarkToNamedLocation,
+  createGeoLocation,
   ICEA_LOCATION,
   JOAO_MONLEVADE_REGION,
   observeAllOpenRideOffers,
@@ -29,6 +34,7 @@ import { SearchBar } from "@ui/components/map/search-bar";
 import { Colors } from "@ui/constants/theme";
 import { useColorScheme } from "@ui/hooks/use-color-scheme";
 import { useCurrentLocation } from "@ui/hooks/use-current-location";
+import { reverseGeocode } from "@ui/lib/location";
 import { useSession } from "@ui/hooks/use-session";
 import { useRideSession } from "@ui/providers/ride-session";
 
@@ -91,6 +97,7 @@ export function MapScreen() {
 
   const [mode, setMode] = useState<MapMode>("request");
   const [seed, setSeed] = useState<NamedLocation | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [bookmarks, setBookmarks] = useState<NamedLocation[]>([]);
   const [openOffers, setOpenOffers] = useState<RideOffer[]>([]);
@@ -122,11 +129,17 @@ export function MapScreen() {
   );
 
   // Ponto EXATO da carona ativa (lado não-ICEA), legível só após o aceite — a
-  // ride privada substitui o pino borrado pela localização real.
-  const exactEndpoint = ride
-    ? ride.direction === "toCampus"
-      ? ride.origin
-      : ride.destination
+  // ride privada substitui o pino borrado pela localização real. Só enquanto a
+  // carona está viva; some ao finalizar/cancelar.
+  const rideLive =
+    ride != null &&
+    (ride.status === "open" ||
+      ride.status === "full" ||
+      ride.status === "inProgress");
+  const exactEndpoint = rideLive
+    ? ride!.direction === "toCampus"
+      ? ride!.origin
+      : ride!.destination
     : null;
 
   useEffect(() => {
@@ -201,7 +214,7 @@ export function MapScreen() {
     }
     Alert.alert(
       "Aceitar pedido?",
-      `${request.passengerName} vai embarcar num ponto aproximado. Ao aceitar, ele entra na sua carona.`,
+      `${request.passengerName}: ${request.originPin.label} → ${request.destinationPin.label}. Ao aceitar, ele entra na sua carona.`,
       [
         { text: "Cancelar", style: "cancel" },
         {
@@ -219,6 +232,29 @@ export function MapScreen() {
         },
       ],
     );
+  }
+
+  // Tocar num modo já selecionado abre a busca; tocar no outro troca o modo.
+  function onModePress(target: MapMode) {
+    if (mode === target) {
+      setSearchOpen(true);
+    } else {
+      setMode(target);
+    }
+  }
+
+  // Segurar o dedo no mapa solta um marcador ali e usa aquele ponto como destino
+  // (pedir) / endpoint (oferecer) — alternativa à busca por texto.
+  async function onMapLongPress(event: LongPressEvent) {
+    if (hasActiveRide || sheetOpen || selectedOffer) {
+      return;
+    }
+    const { latitude, longitude } = event.nativeEvent.coordinate;
+    const geo = createGeoLocation({ latitude, longitude });
+    const { label, address } = await reverseGeocode({ latitude, longitude });
+    setSeed({ ...geo, label, address });
+    setSearchOpen(false);
+    setSheetOpen(true);
   }
 
   function onOfferPin(offer: RideOffer) {
@@ -242,6 +278,7 @@ export function MapScreen() {
         showsUserLocation
         showsMyLocationButton
         toolbarEnabled={false}
+        onLongPress={onMapLongPress}
       >
         <Marker
           coordinate={ICEA_LOCATION}
@@ -250,14 +287,26 @@ export function MapScreen() {
           pinColor={ICEA_COLOR}
         />
 
+        {/* Ponto escolhido por long-press (antes de publicar). */}
+        {seed && !hasActiveRide ? (
+          <Marker
+            coordinate={seed}
+            title={seed.label}
+            description={mode === "request" ? "Destino do pedido" : "Ponto da oferta"}
+            pinColor={accent}
+          />
+        ) : null}
+
         {openOffers.map((offer) => (
           <Marker
             key={`offer-${offer.id}`}
             coordinate={spread.get(`offer-${offer.id}`) ?? offer.endpointPin}
             title={`${offer.driverName} · oferecendo`}
-            description={`${offer.seatsAvailable} de ${offer.availableSeats} assentos · ${
-              offer.direction === "toCampus" ? "indo ao ICEA" : "saindo do ICEA"
-            }`}
+            description={`${
+              offer.direction === "toCampus"
+                ? `${offer.endpointPin.label} → ICEA`
+                : `ICEA → ${offer.endpointPin.label}`
+            } · ${offer.seatsAvailable} de ${offer.availableSeats} assentos`}
             pinColor={OFFER_COLOR}
             onPress={() => onOfferPin(offer)}
           />
@@ -268,7 +317,7 @@ export function MapScreen() {
             key={`request-${request.id}`}
             coordinate={spread.get(`request-${request.id}`) ?? request.originPin}
             title={`${request.passengerName} · pedindo carona`}
-            description="Toque para aceitar (se você está oferecendo)"
+            description={`${request.originPin.label} → ${request.destinationPin.label}`}
             pinColor={REQUEST_COLOR}
             onPress={() => onRequestPin(request)}
           />
@@ -293,6 +342,8 @@ export function MapScreen() {
           destination={seed}
           bookmarks={bookmarks}
           tintColor={accent}
+          expanded={searchOpen}
+          onExpandedChange={setSearchOpen}
           placeholder={
             mode === "request" ? "Para onde você vai?" : "De/para onde? (ICEA)"
           }
@@ -318,16 +369,6 @@ export function MapScreen() {
         </View>
       ) : null}
 
-      {hasActiveRide ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>
-            {phase === "seeking"
-              ? "Seu pedido está no mapa. Aguardando um motorista."
-              : "Você tem uma carona ativa. Gerencie na aba Carona."}
-          </Text>
-        </View>
-      ) : null}
-
       {!hasActiveRide ? (
         <View style={styles.modeSelector}>
           <ModeButton
@@ -336,7 +377,7 @@ export function MapScreen() {
             icon="figure.wave"
             color={REQUEST_COLOR}
             colors={colors}
-            onPress={() => setMode("request")}
+            onPress={() => onModePress("request")}
           />
           <ModeButton
             active={mode === "offer"}
@@ -344,7 +385,7 @@ export function MapScreen() {
             icon="car.fill"
             color={OFFER_COLOR}
             colors={colors}
-            onPress={() => setMode("offer")}
+            onPress={() => onModePress("offer")}
           />
         </View>
       ) : null}
@@ -435,16 +476,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
   },
   counterText: { fontSize: 14, fontWeight: "700", marginRight: 4 },
-  banner: {
-    position: "absolute",
-    top: 12,
-    left: 16,
-    right: 16,
-    backgroundColor: "#C8102E",
-    borderRadius: 12,
-    padding: 14,
-  },
-  bannerText: { color: "#fff", fontWeight: "600", textAlign: "center" },
   modeSelector: {
     position: "absolute",
     bottom: 28,

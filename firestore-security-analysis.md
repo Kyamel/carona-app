@@ -20,15 +20,14 @@ todas as leituras/escritas falham.
   a terceiros são desnormalizados nos docs de carona. `bookmarks` subcoleção:
   owner-only.
 - **rideOffers/{id}** — listagem autenticada para matching. Carrega um
-  `endpointPin` **FUZZY** (só lat/lng/geoHash, sem label/address, geoHash ≤ 6
-  chars) do lado não-ICEA, para o pino público no mapa. **Não** carrega o
-  `origin`/`destination` exatos — esses ficam só na `rides/{id}` privada. Criado
-  e atualizado junto da `rides/{id}`.
-- **rideRequests/{uid}** — pino público de "quero carona", simétrico à oferta.
-  Só pinos **FUZZY** de origem e destino (`validPin`); diferente da oferta, não
-  precisa tocar o ICEA (pode ser no meio do corredor). Leitura autenticada;
-  criação só do dono segurando o mutex `requester`; `status` open→matched (pelo
-  motorista, amarrado a um aceite real) ou open→canceled (pelo dono).
+  `endpointPin` (localização **real**, `validLocation`) do lado não-ICEA, para o
+  pino público no mapa. Comunidade fechada/confiável (só UFOP-ICEA verificado):
+  aceitou-se mostrar a posição real. Criado e atualizado junto da `rides/{id}`.
+- **rideRequests/{uid}** — pedido público de "quero carona", simétrico à oferta.
+  Origem e destino **reais** (`validLocation`); diferente da oferta, não precisa
+  tocar o ICEA (pode ser no meio do corredor). Leitura autenticada; criação só
+  do dono segurando o mutex `requester`; `status` open→matched (pelo motorista,
+  amarrado a um aceite real) ou open→canceled (pelo dono).
 - **rides/{id}** — contém origem/destino exatos do motorista, então é legível só
   por `participantIds`: motorista e passageiros aceitos. Passageiro pendente
   observa apenas o próprio `joinRequests/{uid}` até ser aceito. Subcoleções
@@ -56,16 +55,15 @@ todas as leituras/escritas falham.
   só para caronas `completed` com ambos em `participantIds`; `raterName`
   conferido contra `users/{rater}.name`.
 
-## Mudança de postura: pinos públicos fuzzy (praça de caronas)
+## Postura de localização: pinos públicos com posição real (praça de caronas)
 
-O app passou a mostrar ofertas **e** pedidos como pinos no mapa para todos os
-verificados (marketplace de mão dupla). Isso reverte parcialmente a decisão
-anterior de esconder toda localização até o aceite. Mitigação: o que é público é
-sempre **fuzzy** — `validPin` aceita só `latitude`/`longitude`/`geoHash`, sem
-`label`/`address`, e limita o `geoHash` a 6 chars (~1.2 km). O app arredonda a
-coordenada para o centro de uma célula de ~1 km (`fuzzLocation`). O ponto
-**exato** nunca entra num doc público: continua só em `rides` (motorista) e nos
-`joinRequests`/`passengers` privados, revelado apenas após o aceite.
+O app mostra ofertas **e** pedidos como pinos no mapa para todos os verificados
+(marketplace de mão dupla). Decisão de produto: como a comunidade é fechada e
+confiável (só contas UFOP-ICEA verificadas), a localização pública é a **real**
+(`validLocation`, com label/address) — o antigo borramento (`fuzzLocation` /
+`validPin`) foi **removido**. A `rides/{id}` privada continua legível só por
+`participantIds` porque guarda a `driverPixKey` (revelada só na conclusão) e o
+roster; não é mais sobre esconder a localização, que já é pública no `rideOffer`.
 
 **Fluxo mão dupla:** além de passageiro→oferta (cria o próprio `joinRequest`
 pendente), o motorista pode aceitar um pedido público direto do pino. A regra de

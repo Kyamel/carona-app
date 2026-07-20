@@ -13,6 +13,7 @@ import {
   clearActiveRide,
   healStaleActiveRide,
   observeActiveRide,
+  observeJoinRequests,
   observeMyJoinRequest,
   observeMyRideRequest,
   observePassengers,
@@ -54,11 +55,15 @@ type RideSession = {
   // limpo. Consumido pelo watcher global que abre o fluxo de avaliação.
   completedRideId: string | null;
   acknowledgeCompletion: () => void;
-  // Badge vermelho na aba Carona: liga quando um aceite acontece e o usuário
-  // não está com a aba Carona aberta; desliga ao abrir a aba.
+  // Badge vermelho na aba Carona: liga quando algo pede atenção (pedido aceito,
+  // novo passageiro, novo pedido para o motorista) e o usuário não está com a
+  // aba Carona aberta; desliga ao abrir a aba.
   acceptanceBadge: boolean;
   flagAcceptance: () => void;
   setRideTabFocused: (focused: boolean) => void;
+  // Nº de pedidos pendentes na carona do motorista (para notificar/badge de
+  // "alguém quer entrar").
+  pendingJoinCount: number;
 };
 
 const RideSessionContext = createContext<RideSession | null>(null);
@@ -72,6 +77,7 @@ export function RideSessionProvider({ children }: PropsWithChildren) {
   const [myJoinRequest, setMyJoinRequest] = useState<JoinRequest | null>(null);
   const [myRideRequest, setMyRideRequest] = useState<RideRequest | null>(null);
   const [passengers, setPassengers] = useState<RidePassenger[]>([]);
+  const [pendingJoinCount, setPendingJoinCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [completedRideId, setCompletedRideId] = useState<string | null>(null);
   const [acceptanceBadge, setAcceptanceBadge] = useState(false);
@@ -233,6 +239,21 @@ export function RideSessionProvider({ children }: PropsWithChildren) {
     return observePassengers(activeRide.rideId, setPassengers);
   }, [activeRide, passengerCanReadRide]);
 
+  // Motorista: observa os pedidos da própria carona globalmente (independente da
+  // aba) para poder notificar/badge quando alguém pede pra entrar.
+  useEffect(() => {
+    if (!activeRide || activeRide.role !== "driver") {
+      setPendingJoinCount(0);
+      return;
+    }
+
+    return observeJoinRequests(activeRide.rideId, (requests) => {
+      setPendingJoinCount(
+        requests.filter((request) => request.status === "pending").length,
+      );
+    });
+  }, [activeRide]);
+
   const value = useMemo<RideSession>(() => {
     const role = activeRide?.role ?? null;
     let phase: RidePhase = "idle";
@@ -280,6 +301,7 @@ export function RideSessionProvider({ children }: PropsWithChildren) {
       acceptanceBadge,
       flagAcceptance,
       setRideTabFocused,
+      pendingJoinCount,
     };
   }, [
     activeRide,
@@ -292,6 +314,7 @@ export function RideSessionProvider({ children }: PropsWithChildren) {
     acceptanceBadge,
     flagAcceptance,
     setRideTabFocused,
+    pendingJoinCount,
   ]);
 
   return <RideSessionContext value={value}>{children}</RideSessionContext>;
