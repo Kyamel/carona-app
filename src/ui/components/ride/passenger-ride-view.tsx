@@ -1,5 +1,5 @@
-import { useState } from "react";
 import { useRouter } from "expo-router";
+import { useState } from "react";
 import {
   Alert,
   Pressable,
@@ -17,12 +17,12 @@ import {
   type Ride,
 } from "@data";
 
-import { Colors } from "@ui/constants/theme";
-import { useRideSession } from "@ui/providers/ride-session";
 import { IconSymbol } from "@ui/components/icons/icon-symbol";
 import { confirmCancel } from "@ui/components/ride/cancel-warning";
 import { DriverReviews } from "@ui/components/ride/driver-reviews";
+import { Colors } from "@ui/constants/theme";
 import { useColorScheme } from "@ui/hooks/use-color-scheme";
+import { useRideSession } from "@ui/providers/ride-session";
 
 export function PassengerRideView({
   ride,
@@ -102,7 +102,11 @@ export function PassengerRideView({
   function openChat() {
     router.push({
       pathname: "/chat",
-      params: { rideId: ride.id, threadId: passengerId, title: ride.driverName },
+      params: {
+        rideId: ride.id,
+        threadId: passengerId,
+        title: ride.driverName,
+      },
     });
   }
 
@@ -156,7 +160,7 @@ export function PassengerRideView({
 
       {needsConfirmation ? (
         <Text style={{ color: colors.icon }}>
-          {ride.driverName} aceitou seu pedido. Confirme para embarcar — só então
+          {ride.driverName} aceitou seu pedido. Confirme para embarcar; só então
           o motorista poderá iniciar a corrida.
         </Text>
       ) : null}
