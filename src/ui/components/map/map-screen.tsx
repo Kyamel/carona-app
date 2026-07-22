@@ -1,3 +1,4 @@
+import { useRouter } from "expo-router";
 import {
   useEffect,
   useMemo,
@@ -5,8 +6,14 @@ import {
   useState,
   type ComponentProps,
 } from "react";
-import { useRouter } from "expo-router";
-import { Alert, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Alert,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import MapView, {
   Marker,
   PROVIDER_GOOGLE,
@@ -35,8 +42,8 @@ import { SearchBar } from "@ui/components/map/search-bar";
 import { Colors } from "@ui/constants/theme";
 import { useColorScheme } from "@ui/hooks/use-color-scheme";
 import { useCurrentLocation } from "@ui/hooks/use-current-location";
-import { reverseGeocode } from "@ui/lib/location";
 import { useSession } from "@ui/hooks/use-session";
+import { reverseGeocode } from "@ui/lib/location";
 import { useNotifications } from "@ui/providers/notifications";
 import { useRideSession } from "@ui/providers/ride-session";
 
@@ -306,7 +313,9 @@ export function MapScreen() {
           <Marker
             coordinate={seed}
             title={seed.label}
-            description={mode === "request" ? "Destino do pedido" : "Ponto da oferta"}
+            description={
+              mode === "request" ? "Destino do pedido" : "Ponto da oferta"
+            }
             pinColor={accent}
           />
         ) : null}
@@ -329,7 +338,9 @@ export function MapScreen() {
         {openRequests.map((request) => (
           <Marker
             key={`request-${request.id}`}
-            coordinate={spread.get(`request-${request.id}`) ?? request.originPin}
+            coordinate={
+              spread.get(`request-${request.id}`) ?? request.originPin
+            }
             title={`${request.passengerName} · pedindo carona`}
             description={`${request.originPin.label} → ${request.destinationPin.label}`}
             pinColor={REQUEST_COLOR}
@@ -372,13 +383,13 @@ export function MapScreen() {
 
       {!hasActiveRide ? (
         <View style={[styles.counter, { backgroundColor: colors.background }]}>
-          <IconSymbol name="car.fill" size={15} color={OFFER_COLOR} />
-          <Text style={[styles.counterText, { color: colors.text }]}>
-            {openOffers.length}
-          </Text>
           <IconSymbol name="figure.wave" size={15} color={REQUEST_COLOR} />
           <Text style={[styles.counterText, { color: colors.text }]}>
             {openRequests.length}
+          </Text>
+          <IconSymbol name="car.fill" size={15} color={OFFER_COLOR} />
+          <Text style={[styles.counterText, { color: colors.text }]}>
+            {openOffers.length}
           </Text>
         </View>
       ) : null}
@@ -459,12 +470,7 @@ function ModeButton({
       onPress={onPress}
     >
       <IconSymbol name={icon} size={18} color={active ? "#fff" : color} />
-      <Text
-        style={[
-          styles.modeText,
-          { color: active ? "#fff" : colors.text },
-        ]}
-      >
+      <Text style={[styles.modeText, { color: active ? "#fff" : colors.text }]}>
         {label}
       </Text>
     </Pressable>
