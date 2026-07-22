@@ -21,6 +21,7 @@ import { Colors } from "@ui/constants/theme";
 import { useRideSession } from "@ui/providers/ride-session";
 import { IconSymbol } from "@ui/components/icons/icon-symbol";
 import { confirmCancel } from "@ui/components/ride/cancel-warning";
+import { DriverReviews } from "@ui/components/ride/driver-reviews";
 import { useColorScheme } from "@ui/hooks/use-color-scheme";
 
 export function PassengerRideView({
@@ -145,25 +146,13 @@ export function PassengerRideView({
     >
       <Text style={[styles.status, { color: colors.tint }]}>{statusLabel}</Text>
 
-      <View style={styles.card}>
-        <IconSymbol name="car.fill" size={22} color={colors.tint} />
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.driver, { color: colors.text }]}>
-            {ride.driverName}
-          </Text>
-          <Text style={{ color: colors.icon }} numberOfLines={1}>
-            {ride.origin.label} → {ride.destination.label}
-          </Text>
-        </View>
-        {canChat ? (
-          <Pressable
-            onPress={openChat}
-            style={[styles.chatButton, { backgroundColor: colors.tint }]}
-          >
-            <IconSymbol name="bubble.left.fill" size={20} color="#fff" />
-          </Pressable>
-        ) : null}
-      </View>
+      <DriverReviews
+        driverId={ride.driverId}
+        driverName={ride.driverName}
+        routeLabel={`${ride.origin.label} → ${ride.destination.label}`}
+        canChat={canChat}
+        onChat={openChat}
+      />
 
       {needsConfirmation ? (
         <Text style={{ color: colors.icon }}>
@@ -233,23 +222,6 @@ export function PassengerRideView({
 const styles = StyleSheet.create({
   content: { padding: 20, gap: 12 },
   status: { fontSize: 14, fontWeight: "700", textTransform: "uppercase" },
-  card: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#8E8E93",
-  },
-  driver: { fontSize: 18, fontWeight: "700" },
-  chatButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   sectionTitle: { fontSize: 16, fontWeight: "700", marginTop: 8 },
   riderRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   confirm: {

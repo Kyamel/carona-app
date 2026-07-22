@@ -1,6 +1,13 @@
 import { useCallback } from "react";
 import { useFocusEffect } from "expo-router";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import { cancelPendingJoinRequest, cancelRideRequest } from "@data";
 
@@ -15,8 +22,14 @@ import { useSession } from "@ui/hooks/use-session";
 
 export default function RideTab() {
   const { user } = useSession();
-  const { role, ride, phase, myJoinRequest, setRideTabFocused } =
-    useRideSession();
+  const {
+    activeRide,
+    role,
+    ride,
+    myJoinRequest,
+    loading,
+    setRideTabFocused,
+  } = useRideSession();
 
   // Enquanto a aba Carona está aberta, limpa/segura o badge de aceite.
   useFocusEffect(
@@ -28,23 +41,38 @@ export default function RideTab() {
 
   // A conclusão (prompt de avaliação) e o cancelamento são tratados
   // globalmente pelo RideCompletionWatcher e pelo NotificationProvider.
-  if (!user || phase === "idle") {
+  if (!user) {
+    return <EmptyRide />;
+  }
+
+  // activeRides é a fonte persistente da atividade atual. Enquanto o listener
+  // inicial ou os detalhes da carona carregam, não exibimos falsamente o estado
+  // vazio — isso é especialmente importante logo após publicar uma oferta.
+  if (loading) {
+    return <LoadingRide />;
+  }
+
+  if (!activeRide || !role) {
     return <EmptyRide />;
   }
 
   // Requester com pedido público aberto, aguardando um motorista aceitar.
-  if (phase === "seeking") {
+  if (role === "requester") {
     return <SeekingRideRequest uid={user.uid} />;
   }
 
   if (role === "driver") {
     if (!ride) {
-      return <EmptyRide />;
+      return <LoadingRide />;
     }
     return <DriverRideView ride={ride} driverId={user.uid} />;
   }
 
-  if (phase === "requesting" && myJoinRequest) {
+  if (!myJoinRequest) {
+    return <LoadingRide />;
+  }
+
+  if (myJoinRequest.status === "pending") {
     return (
       <PendingRideRequest
         rideId={myJoinRequest.rideId}
@@ -54,10 +82,24 @@ export default function RideTab() {
   }
 
   if (!ride) {
-    return <EmptyRide />;
+    return <LoadingRide />;
   }
 
   return <PassengerRideView ride={ride} passengerId={user.uid} />;
+}
+
+function LoadingRide() {
+  const scheme = useColorScheme() ?? "light";
+  const colors = Colors[scheme];
+
+  return (
+    <View style={[styles.loading, { backgroundColor: colors.background }]}>
+      <ActivityIndicator size="large" color={colors.tint} />
+      <Text style={[styles.loadingText, { color: colors.icon }]}>
+        Carregando sua carona...
+      </Text>
+    </View>
+  );
 }
 
 function PendingRideRequest({
@@ -151,6 +193,14 @@ function SeekingRideRequest({ uid }: { uid: string }) {
 }
 
 const styles = StyleSheet.create({
+  loading: {
+    alignItems: "center",
+    flex: 1,
+    gap: 12,
+    justifyContent: "center",
+    padding: 24,
+  },
+  loadingText: { fontSize: 15, fontWeight: "600" },
   pending: { flex: 1, padding: 20, gap: 12 },
   status: { fontSize: 14, fontWeight: "700", textTransform: "uppercase" },
   title: { fontSize: 20, fontWeight: "700" },

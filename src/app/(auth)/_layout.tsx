@@ -10,15 +10,12 @@ export default function AuthLayout() {
   return (
     <Stack>
       <Stack.Protected guard={!user}>
-        <Stack.Screen name="login" options={{ title: "Entrar" }} />
-        <Stack.Screen name="register" options={{ title: "Criar conta" }} />
+        <Stack.Screen name="login" options={{ headerShown: false }} />
+        <Stack.Screen name="register" options={{ headerShown: false }} />
       </Stack.Protected>
 
       <Stack.Protected guard={!!user}>
-        <Stack.Screen
-          name="verify-email"
-          options={{ title: "Verifique seu email" }}
-        />
+        <Stack.Screen name="verify-email" options={{ headerShown: false }} />
       </Stack.Protected>
     </Stack>
   );

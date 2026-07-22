@@ -48,25 +48,30 @@ function RootNavigator() {
   const insets = useSafeAreaInsets();
   const scheme = useColorScheme() ?? "light";
   const colors = Colors[scheme];
-  const { user, loading } = useSession();
+  const { user, emailVerified, loading } = useSession();
   const { phase, role } = useRideSession();
 
   if (loading) {
     return null;
   }
 
-  const signedIn = !!user && user.emailVerified;
+  const signedIn = !!user && emailVerified;
   const timerActive = signedIn && phase !== "idle";
   const barColor = rideBarColor(role);
+  const screenBackground = signedIn
+    ? colors.background
+    : scheme === "dark"
+      ? "#101213"
+      : "#F7F3F4";
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
+    <View style={{ flex: 1, backgroundColor: screenBackground }}>
       {/* Faixa da status bar: única fonte de safe area no topo. Fica vermelha
           quando o contador está ativo, emendando com a TimerBar. */}
       <View
         style={{
           height: insets.top,
-          backgroundColor: timerActive ? barColor : colors.background,
+          backgroundColor: timerActive ? barColor : screenBackground,
         }}
       />
       {signedIn ? <RideCompletionWatcher /> : null}

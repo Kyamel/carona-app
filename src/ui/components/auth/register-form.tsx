@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, Text, TextInput, View } from "react-native";
 
 import { ALLOW_NON_UFOP, isUfopEmail, register } from "@data";
 
@@ -40,34 +40,52 @@ export function RegisterForm() {
   }
 
   return (
-    <View style={{ gap: 12 }}>
-      <TextInput
-        style={[authStyles.input, authInputStyle(scheme)]}
-        placeholder="Nome"
-        placeholderTextColor={colors.icon}
-        value={name}
-        onChangeText={setName}
-        autoComplete="name"
-      />
-      <TextInput
-        style={[authStyles.input, authInputStyle(scheme)]}
-        placeholder="Email"
-        placeholderTextColor={colors.icon}
-        value={email}
-        onChangeText={setEmail}
-        autoCapitalize="none"
-        autoComplete="email"
-        keyboardType="email-address"
-      />
-      <PasswordInput
-        value={password}
-        onChangeText={setPassword}
-        autoComplete="new-password"
-      />
+    <View style={authStyles.form}>
+      <View style={authStyles.field}>
+        <Text style={[authStyles.label, { color: colors.text }]}>Nome</Text>
+        <TextInput
+          style={[authStyles.input, authInputStyle(scheme)]}
+          placeholder="Como você quer ser chamado"
+          placeholderTextColor={colors.icon}
+          value={name}
+          onChangeText={setName}
+          autoCapitalize="words"
+          autoComplete="name"
+          returnKeyType="next"
+          textContentType="name"
+        />
+      </View>
+      <View style={authStyles.field}>
+        <Text style={[authStyles.label, { color: colors.text }]}>E-mail</Text>
+        <TextInput
+          style={[authStyles.input, authInputStyle(scheme)]}
+          placeholder="seu.email@ufop.edu.br"
+          placeholderTextColor={colors.icon}
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          autoComplete="email"
+          autoCorrect={false}
+          keyboardType="email-address"
+          returnKeyType="next"
+          textContentType="emailAddress"
+        />
+      </View>
+      <View style={authStyles.field}>
+        <Text style={[authStyles.label, { color: colors.text }]}>Senha</Text>
+        <PasswordInput
+          value={password}
+          onChangeText={setPassword}
+          autoComplete="new-password"
+          onSubmitEditing={handleSubmit}
+          returnKeyType="done"
+          textContentType="newPassword"
+        />
+      </View>
       {error ? <Text style={authStyles.error}>{error}</Text> : null}
       <Pressable
         style={[
-          styles.button,
+          authStyles.primaryButton,
           {
             backgroundColor: colors.tint,
             opacity: submitting || !name || !email || !password ? 0.5 : 1,
@@ -76,21 +94,12 @@ export function RegisterForm() {
         onPress={handleSubmit}
         disabled={submitting || !name || !email || !password}
       >
-        <Text style={styles.buttonText}>
+        <Text style={authStyles.primaryButtonText}>
           {submitting ? "Criando..." : "Criar conta"}
         </Text>
       </Pressable>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  button: {
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: "center",
-  },
-  buttonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-});
 
 export default RegisterForm;

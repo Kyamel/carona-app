@@ -1,21 +1,37 @@
 import { Link } from "expo-router";
-import { StyleSheet } from "react-native";
+import { Pressable, StyleSheet, Text } from "react-native";
 
+import { AuthScreen } from "@ui/components/auth/auth-screen";
 import { LoginForm } from "@ui/components/auth/login-form";
-import { ThemedText } from "@ui/components/themed-text";
-import { ThemedView } from "@ui/components/themed-view";
+import { Colors } from "@ui/constants/theme";
+import { useColorScheme } from "@ui/hooks/use-color-scheme";
 
 export default function Login() {
+  const scheme = useColorScheme() ?? "light";
+  const colors = Colors[scheme];
+
   return (
-    <ThemedView style={styles.container}>
+    <AuthScreen
+      title="Bem-vindo de volta"
+      subtitle="Entre para encontrar ou oferecer caronas na comunidade UFOP."
+    >
       <LoginForm />
-      <Link href="/register">
-        <ThemedText type="link">Não tem conta? Criar conta</ThemedText>
+      <Link href="/register" replace asChild>
+        <Pressable style={styles.accountLink}>
+          <Text style={[styles.accountText, { color: colors.icon }]}>
+            Ainda não tem conta?{" "}
+            <Text style={[styles.accountAction, { color: colors.tint }]}>
+              Criar conta
+            </Text>
+          </Text>
+        </Pressable>
       </Link>
-    </ThemedView>
+    </AuthScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, gap: 16, justifyContent: "center", padding: 24 },
+  accountLink: { alignItems: "center", marginTop: 20, paddingVertical: 4 },
+  accountText: { fontSize: 14, lineHeight: 20, textAlign: "center" },
+  accountAction: { fontWeight: "800" },
 });

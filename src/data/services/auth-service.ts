@@ -1,7 +1,7 @@
 import { auth, db } from "../lib/firebase";
 import {
   createUserWithEmailAndPassword,
-  onAuthStateChanged,
+  onIdTokenChanged,
   sendEmailVerification,
   signInWithEmailAndPassword,
   signOut,
@@ -56,7 +56,11 @@ export async function register({
 }
 
 export async function login({ email, password }: LoginInput): Promise<User> {
-  const { user } = await signInWithEmailAndPassword(auth, email, password);
+  const { user } = await signInWithEmailAndPassword(
+    auth,
+    normalizeEmail(email),
+    password,
+  );
   return user;
 }
 
@@ -72,15 +76,22 @@ export async function sendVerificationEmail(): Promise<void> {
 }
 
 export async function refreshCurrentUser(): Promise<User | null> {
-  await auth.currentUser?.reload();
+  const user = auth.currentUser;
+  if (!user) {
+    return null;
+  }
+
+  await user.reload();
   // Firestore rules read email_verified from the ID token; reload() alone
   // keeps the stale token, so force a refresh to pick the flag up.
-  await auth.currentUser?.getIdToken(true);
-  return auth.currentUser;
+  await user.getIdToken(true);
+  return user;
 }
 
 export function observeAuthState(
   listener: (user: User | null) => void,
 ): () => void {
-  return onAuthStateChanged(auth, listener);
+  // Unlike onAuthStateChanged, this also fires after a token refresh. Email
+  // verification changes both the user profile and the email_verified claim.
+  return onIdTokenChanged(auth, listener);
 }

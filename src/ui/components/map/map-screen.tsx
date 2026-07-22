@@ -5,6 +5,7 @@ import {
   useState,
   type ComponentProps,
 } from "react";
+import { useRouter } from "expo-router";
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import MapView, {
   Marker,
@@ -36,6 +37,7 @@ import { useColorScheme } from "@ui/hooks/use-color-scheme";
 import { useCurrentLocation } from "@ui/hooks/use-current-location";
 import { reverseGeocode } from "@ui/lib/location";
 import { useSession } from "@ui/hooks/use-session";
+import { useNotifications } from "@ui/providers/notifications";
 import { useRideSession } from "@ui/providers/ride-session";
 
 // Cores dos pinos e dos modos — distintas do vermelho UFOP (ICEA).
@@ -88,11 +90,19 @@ function spreadOverlapping(
 
 export function MapScreen() {
   const mapRef = useRef<MapView>(null);
+  const router = useRouter();
   const scheme = useColorScheme() ?? "light";
   const colors = Colors[scheme];
 
   const { user } = useSession();
-  const { phase, role, ride } = useRideSession();
+  const { playRideSound } = useNotifications();
+  const {
+    activeRide,
+    loading: rideSessionLoading,
+    phase,
+    role,
+    ride,
+  } = useRideSession();
   const { location } = useCurrentLocation();
 
   const [mode, setMode] = useState<MapMode>("request");
@@ -105,7 +115,9 @@ export function MapScreen() {
   const [selectedOffer, setSelectedOffer] = useState<RideOffer | null>(null);
   const centeredOnUser = useRef(false);
 
-  const hasActiveRide = phase !== "idle";
+  // O mutex persistente é a fonte de verdade. Durante a hidratação, também
+  // bloqueamos uma nova publicação para evitar criar duas atividades.
+  const hasActiveRide = rideSessionLoading || activeRide != null;
   const isOfferingDriver =
     role === "driver" && (phase === "offering" || phase === "full") && !!ride;
   const accent = mode === "request" ? REQUEST_COLOR : OFFER_COLOR;
@@ -195,6 +207,7 @@ export function MapScreen() {
         dropoff,
       });
       setSelectedOffer(null);
+      router.navigate("/(tabs)/ride");
     } catch (cause) {
       Alert.alert(
         "Não foi possível pedir a carona",
@@ -265,6 +278,7 @@ export function MapScreen() {
       );
       return;
     }
+    playRideSound();
     setSelectedOffer(offer);
   }
 
@@ -412,6 +426,7 @@ export function MapScreen() {
         onCreated={() => {
           setSheetOpen(false);
           setSeed(null);
+          router.navigate("/(tabs)/ride");
         }}
       />
     </View>

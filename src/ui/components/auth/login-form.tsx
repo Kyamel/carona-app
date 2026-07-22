@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, Text, TextInput, View } from "react-native";
 
 import { login } from "@data";
 
@@ -17,6 +17,10 @@ export function LoginForm() {
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit() {
+    if (!email.trim() || !password) {
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
     try {
@@ -30,26 +34,38 @@ export function LoginForm() {
   }
 
   return (
-    <View style={{ gap: 12 }}>
-      <TextInput
-        style={[authStyles.input, authInputStyle(scheme)]}
-        placeholder="Email"
-        placeholderTextColor={colors.icon}
-        value={email}
-        onChangeText={setEmail}
-        autoCapitalize="none"
-        autoComplete="email"
-        keyboardType="email-address"
-      />
-      <PasswordInput
-        value={password}
-        onChangeText={setPassword}
-        autoComplete="current-password"
-      />
+    <View style={authStyles.form}>
+      <View style={authStyles.field}>
+        <Text style={[authStyles.label, { color: colors.text }]}>E-mail</Text>
+        <TextInput
+          style={[authStyles.input, authInputStyle(scheme)]}
+          placeholder="seu.email@ufop.edu.br"
+          placeholderTextColor={colors.icon}
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          autoComplete="email"
+          autoCorrect={false}
+          keyboardType="email-address"
+          returnKeyType="next"
+          textContentType="emailAddress"
+        />
+      </View>
+      <View style={authStyles.field}>
+        <Text style={[authStyles.label, { color: colors.text }]}>Senha</Text>
+        <PasswordInput
+          value={password}
+          onChangeText={setPassword}
+          autoComplete="current-password"
+          onSubmitEditing={handleSubmit}
+          returnKeyType="go"
+          textContentType="password"
+        />
+      </View>
       {error ? <Text style={authStyles.error}>{error}</Text> : null}
       <Pressable
         style={[
-          styles.button,
+          authStyles.primaryButton,
           {
             backgroundColor: colors.tint,
             opacity: submitting || !email || !password ? 0.5 : 1,
@@ -58,21 +74,12 @@ export function LoginForm() {
         onPress={handleSubmit}
         disabled={submitting || !email || !password}
       >
-        <Text style={styles.buttonText}>
+        <Text style={authStyles.primaryButtonText}>
           {submitting ? "Entrando..." : "Entrar"}
         </Text>
       </Pressable>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  button: {
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: "center",
-  },
-  buttonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-});
 
 export default LoginForm;

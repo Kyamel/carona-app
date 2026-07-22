@@ -11,6 +11,7 @@ import { observeAuthState, refreshCurrentUser, type User } from "@data";
 
 type Session = {
   user: User | null;
+  emailVerified: boolean;
   loading: boolean;
   refresh: () => Promise<User | null>;
 };
@@ -18,18 +19,21 @@ type Session = {
 const SessionContext = createContext<Session | null>(null);
 
 export function SessionProvider({ children }: PropsWithChildren) {
-  // reload() mutates the User in place instead of handing back a new instance,
-  // so storing it bare would never change identity and emailVerified flipping
-  // would not re-render anything. The wrapper is what React sees change.
-  const [snapshot, setSnapshot] = useState<{ user: User | null }>({
+  // reload() mutates the User in place. Keep emailVerified as an immutable
+  // snapshot so the route guards always see a value whose identity changed.
+  const [snapshot, setSnapshot] = useState<{
+    user: User | null;
+    emailVerified: boolean;
+  }>({
     user: null,
+    emailVerified: false,
   });
   const [loading, setLoading] = useState(true);
 
   useEffect(
     () =>
       observeAuthState((user) => {
-        setSnapshot({ user });
+        setSnapshot({ user, emailVerified: user?.emailVerified ?? false });
         setLoading(false);
       }),
     [],
@@ -38,10 +42,14 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const value = useMemo<Session>(
     () => ({
       user: snapshot.user,
+      emailVerified: snapshot.emailVerified,
       loading,
       refresh: async () => {
         const refreshed = await refreshCurrentUser();
-        setSnapshot({ user: refreshed });
+        setSnapshot({
+          user: refreshed,
+          emailVerified: refreshed?.emailVerified ?? false,
+        });
         return refreshed;
       },
     }),

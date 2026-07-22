@@ -12,11 +12,12 @@ import { IconSymbol } from "@ui/components/icons/icon-symbol";
 import { Colors } from "@ui/constants/theme";
 import { useColorScheme } from "@ui/hooks/use-color-scheme";
 
-type PasswordInputProps = {
+type PasswordInputProps = Omit<
+  TextInputProps,
+  "value" | "onChangeText" | "secureTextEntry"
+> & {
   value: string;
   onChangeText: (value: string) => void;
-  placeholder?: string;
-  autoComplete?: TextInputProps["autoComplete"];
 };
 
 // Campo de senha com botão de olho para exibir/ocultar o texto digitado.
@@ -25,6 +26,7 @@ export function PasswordInput({
   onChangeText,
   placeholder = "Senha",
   autoComplete = "current-password",
+  ...inputProps
 }: PasswordInputProps) {
   const scheme = useColorScheme() ?? "light";
   const colors = Colors[scheme];
@@ -41,6 +43,7 @@ export function PasswordInput({
         autoCapitalize="none"
         autoComplete={autoComplete}
         secureTextEntry={!visible}
+        {...inputProps}
       />
       <Pressable
         style={styles.toggle}
@@ -61,6 +64,6 @@ export function PasswordInput({
 
 const styles = StyleSheet.create({
   wrap: { justifyContent: "center" },
-  input: { paddingRight: 48 },
-  toggle: { position: "absolute", right: 12, padding: 4 },
+  input: { paddingRight: 52 },
+  toggle: { position: "absolute", right: 12, padding: 6 },
 });

@@ -1,6 +1,9 @@
 import {
+  average,
   collection,
+  count,
   doc,
+  getAggregateFromServer,
   getDocs,
   limit,
   orderBy,
@@ -23,6 +26,11 @@ export type CreateReviewInput = {
   rateeId: string;
   rating: number;
   text?: string;
+};
+
+export type ReviewSummary = {
+  averageRating: number | null;
+  reviewCount: number;
 };
 
 // Id composto garante no máximo 1 review por avaliador/avaliado/carona;
@@ -68,4 +76,19 @@ export async function listReviewsAbout(
       createdAt: timestampToDate(data.createdAt),
     };
   });
+}
+
+// Resumo exato calculado pelo servidor, sem baixar todas as avaliações.
+export async function getReviewSummary(
+  rateeId: string,
+): Promise<ReviewSummary> {
+  const snapshot = await getAggregateFromServer(
+    query(collection(db, REVIEWS_COLLECTION), where("rateeId", "==", rateeId)),
+    { count: count(), averageRating: average("rating") },
+  );
+
+  return {
+    averageRating: snapshot.data().averageRating,
+    reviewCount: snapshot.data().count,
+  };
 }

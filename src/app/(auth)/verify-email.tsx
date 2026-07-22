@@ -1,16 +1,13 @@
-import { StyleSheet } from "react-native";
-
+import { AuthScreen } from "@ui/components/auth/auth-screen";
 import { VerifyForm } from "@ui/components/auth/verify-form";
-import { ThemedView } from "@ui/components/themed-view";
 
 export default function VerifyEmailPage() {
   return (
-    <ThemedView style={styles.container}>
+    <AuthScreen
+      title="Confirme seu e-mail"
+      subtitle="Falta só uma etapa para liberar sua conta e começar a usar o Carona UFOP."
+    >
       <VerifyForm />
-    </ThemedView>
+    </AuthScreen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, gap: 16, justifyContent: "center", padding: 24 },
-});

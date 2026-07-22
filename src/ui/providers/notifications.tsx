@@ -20,6 +20,7 @@ type AppNotice = { title: string; message: string };
 
 type NotificationApi = {
   notify: (notice: AppNotice) => void;
+  playRideSound: () => void;
 };
 
 const NotificationContext = createContext<NotificationApi | null>(null);
@@ -31,16 +32,19 @@ export function NotificationProvider({ children }: PropsWithChildren) {
   const opacity = useRef(new Animated.Value(0)).current;
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const playRideSound = useCallback(() => {
+    try {
+      player.seekTo(0);
+      player.play();
+    } catch {
+      // Som é um reforço de feedback; falhas de áudio não bloqueiam a ação.
+    }
+  }, [player]);
+
   const notify = useCallback(
     (next: AppNotice) => {
       setNotice(next);
-
-      try {
-        player.seekTo(0);
-        player.play();
-      } catch {
-        // Áudio é um extra; nunca deve quebrar o fluxo.
-      }
+      playRideSound();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
         () => undefined,
       );
@@ -62,7 +66,7 @@ export function NotificationProvider({ children }: PropsWithChildren) {
         }).start(() => setNotice(null));
       }, 4000);
     },
-    [opacity, player],
+    [opacity, playRideSound],
   );
 
   useEffect(() => {
@@ -74,7 +78,7 @@ export function NotificationProvider({ children }: PropsWithChildren) {
   }, []);
 
   return (
-    <NotificationContext value={{ notify }}>
+    <NotificationContext value={{ notify, playRideSound }}>
       <RideNotificationBridge />
       {children}
       {notice ? (
